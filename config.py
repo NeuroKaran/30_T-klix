@@ -122,6 +122,12 @@ class Config:
     memory_search_limit: int = 10
     memory_auto_extract: bool = True  # Auto-extract memories from conversations
     
+    # Local Mem0 Configuration (Qdrant + Ollama)
+    mem0_local: bool = field(default_factory=lambda: os.getenv("MEM0_LOCAL", "true").lower() == "true")
+    mem0_qdrant_path: str = field(default_factory=lambda: os.getenv("MEM0_QDRANT_PATH", "./.qdrant_data"))
+    mem0_embedder_model: str = field(default_factory=lambda: os.getenv("MEM0_EMBEDDER_MODEL", "nomic-embed-text-v2-moe:latest"))
+    mem0_llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen2.5-coder:3b"))
+    
     # Reasoning Traces Configuration
     enable_traces: bool = field(default_factory=lambda: os.getenv("ENABLE_TRACES", "true").lower() == "true")
     traces_dir: Path = field(default_factory=lambda: Path(os.getenv("TRACES_DIR", "traces")))
