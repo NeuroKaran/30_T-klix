@@ -51,8 +51,13 @@ class GeminiClient:
     
     # Configuration
     api_key: str = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
+    provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini"))
     model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
-    fallback_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b"))
+    
+    # Ollama settings (primary or fallback)
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b"))
+    ollama_base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+    
     max_tokens: int = 300  # Increased for better expressiveness
     temperature: float = 0.7
     
@@ -78,22 +83,30 @@ RULES:
 """, init=False)
     
     def __post_init__(self) -> None:
-        """Initialize the Gemini client."""
-        if self.api_key:
-            try:
-                self._client = genai.Client(api_key=self.api_key)
-                logger.info(f"🚀 Gemini client initialized with model: {self.model}")
-            except Exception as e:
-                logger.error(f"Failed to initialize Gemini client: {e}")
-                self._client = None
-        else:
-            logger.error("❌ No GOOGLE_API_KEY provided!")
-            self._client = None
+        """Initialize the LLM client based on provider."""
+        logger.info(f"🚀 Initializing LLM Client with provider: {self.provider}")
+        
+        if self.provider == "gemini":
+            if self.api_key:
+                try:
+                    self._client = genai.Client(api_key=self.api_key)
+                    logger.info(f"✨ Gemini client ready (Model: {self.model})")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Gemini client: {e}")
+                    self._client = None
+            else:
+                logger.warning("⚠️ No GOOGLE_API_KEY provided. Defaulting to Ollama.")
+                self.provider = "ollama"
+        
+        if self.provider == "ollama":
+             logger.info(f"🦙 Ollama client ready (Model: {self.ollama_model})")
     
     @property
     def is_ready(self) -> bool:
         """Check if the client is ready to make requests."""
-        return self._client is not None
+        if self.provider == "gemini":
+            return self._client is not None
+        return True  # Ollama is assumed always available locally
     
     def _get_safety_settings(self) -> list[types.SafetySetting]:
         """Get permissive safety settings for development."""
@@ -116,15 +129,13 @@ RULES:
             ),
         ]
     
-    def _fallback_to_ollama(
+    def _generate_with_ollama(
         self, 
         messages: list[dict[str, str]] | str, 
         system_prompt: str | None = None
     ) -> LLMResponse:
-        """Fallback to Ollama when Gemini fails."""
+        """Generate response using Ollama."""
         try:
-            logger.warning(f"⚠️ Switching to Ollama fallback (Model: {self.fallback_model})...")
-            
             final_system = system_prompt or self.DEFAULT_SYSTEM_PROMPT
             
             # Prepare messages for Ollama
@@ -140,14 +151,13 @@ RULES:
                     role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
                     ollama_messages.append({"role": role, "content": msg.get("content", "")})
             
-            response = ollama.chat(model=self.fallback_model, messages=ollama_messages)
+            response = ollama.chat(model=self.ollama_model, messages=ollama_messages)
             
             content = response['message']['content']
             usage = {
                 "total_tokens": response.get('eval_count', 0) + response.get('prompt_eval_count', 0)
             }
             
-            logger.info("✅ Ollama fallback successful")
             return LLMResponse(
                 content=content,
                 finish_reason="stop",
@@ -157,9 +167,9 @@ RULES:
             )
             
         except Exception as e:
-            logger.error(f"❌ Ollama fallback failed: {e}")
+            logger.error(f"❌ Ollama generation failed: {e}")
             return LLMResponse(
-                content="I'm having trouble connecting to my brain right now. Can we try again later?",
+                content="I'm disconnected from my brain right now.",
                 finish_reason="error",
                 provider="error"
             )
@@ -171,16 +181,9 @@ RULES:
     ) -> LLMResponse:
         """
         Generate a response synchronously.
-        
-        Args:
-            user_text: The user's message
-            system_prompt: Optional custom system prompt (with memory context)
-            
-        Returns:
-            LLMResponse with generated content
         """
-        if not self.is_ready:
-            return self._fallback_to_ollama(user_text, system_prompt)
+        if self.provider == "ollama" or not self.is_ready:
+            return self._generate_with_ollama(user_text, system_prompt)
         
         final_system = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         
@@ -223,7 +226,7 @@ RULES:
             
         except Exception as e:
             logger.error(f"Error generating response with Gemini: {e}")
-            return self._fallback_to_ollama(user_text, system_prompt)
+            return self._generate_with_ollama(user_text, system_prompt)
     
     async def generate_async(
         self, 
@@ -231,19 +234,8 @@ RULES:
         system_prompt: str | None = None
     ) -> LLMResponse:
         """
-        Generate a response asynchronously (preferred for WebSocket handlers).
-        
-        Note: google-genai SDK uses sync under the hood, but we wrap for consistency.
-        
-        Args:
-            user_text: The user's message
-            system_prompt: Optional custom system prompt (with memory context)
-            
-        Returns:
-            LLMResponse with generated content
+        Generate a response asynchronously.
         """
-        # Gemini SDK doesn't have native async, so we use sync
-        # In production, consider using asyncio.to_thread() for true async
         return self.generate(user_text, system_prompt)
     
     def chat_with_history(
@@ -253,16 +245,9 @@ RULES:
     ) -> LLMResponse:
         """
         Generate response with full conversation history.
-        
-        Args:
-            messages: List of {"role": "user"|"model", "content": "..."}
-            system_prompt: Optional system prompt
-            
-        Returns:
-            LLMResponse with generated content
         """
-        if not self.is_ready:
-             return self._fallback_to_ollama(messages, system_prompt)
+        if self.provider == "ollama" or not self.is_ready:
+             return self._generate_with_ollama(messages, system_prompt)
         
         final_system = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         
@@ -305,7 +290,7 @@ RULES:
             
         except Exception as e:
             logger.error(f"Error in chat_with_history with Gemini: {e}")
-            return self._fallback_to_ollama(messages, system_prompt)
+            return self._generate_with_ollama(messages, system_prompt)
     
     def close(self) -> None:
         """Close the Gemini client."""

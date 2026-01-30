@@ -10,3 +10,9 @@ tasks.md
 .qdrant_test_data/
 reproduce_mem0_persistence.py
 
+# Debug and verification
+debug_*.py
+verify_memory_integration.py
+*.log
+verification_results.txt
+

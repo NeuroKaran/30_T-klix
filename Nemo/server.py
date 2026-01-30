@@ -24,8 +24,16 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+import sys
+from pathlib import Path
+
+# Add project root to path to allow importing shared modules
+project_root = str(Path(__file__).parent.parent.resolve())
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
 # Import core services
-from core.memory import MemoryService, get_memory_service
+from mem_0 import MemoryService, get_memory_service  # Import from root
 from core.llm import GroqClient, get_groq_client
 from core.tts import TextToSpeech, get_tts_service, VOICE_OPTIONS
 
@@ -196,12 +204,19 @@ async def chat_endpoint(message: TextMessage):
     # Get memory context
     past_context = ""
     if memory_service and memory_service.is_enabled:
-        past_context = memory_service.get_context(user_text, message.user_id)
+        past_context = memory_service.get_memory_context(user_text, user_id=message.user_id)
         if past_context:
             logger.info(f"🧠 Recalled context for request")
     
     # Build system prompt with memory
-    system_prompt = build_system_prompt(past_context)
+    # Use request user_id or fall back to configured default
+    target_user = message.user_id or AppConfig.APP_NAME  # Fallback to AppName if no user? Better to use configured ID.
+    # Actually, let's use the same logic as memory service default or just pass what we have
+    # The MemoryService has a default user_id. 
+    # Let's get the default from environment if message.user_id is None
+    effective_user_id = message.user_id or os.getenv("NEMO_USER_ID", "Friend")
+    
+    system_prompt = build_system_prompt(past_context, user_id=effective_user_id)
     
     # Generate response
     response = await llm_client.generate_async(user_text, system_prompt)
@@ -242,7 +257,7 @@ async def save_memory(request: MemoryRequest):
     if not memory_service or not memory_service.is_enabled:
         raise HTTPException(status_code=503, detail="Memory service not available")
     
-    success = memory_service.save_text(request.text, request.user_id)
+    success = memory_service.add_text(request.text, user_id=request.user_id)
     return {"success": success}
 
 
@@ -292,12 +307,13 @@ async def websocket_endpoint(websocket: WebSocket):
             # 2. Retrieve Memory Context (The "Context Injection")
             past_context = ""
             if memory_service and memory_service.is_enabled:
-                past_context = memory_service.get_context(user_text, user_id)
+                past_context = memory_service.get_memory_context(user_text, user_id=user_id)
                 if past_context:
                     logger.info(f"🧠 Recalled memories:\n{past_context}")
             
             # 3. Construct System Prompt with Memory
-            system_prompt = build_system_prompt(past_context)
+            effective_user_id = user_id or os.getenv("NEMO_USER_ID", "Friend")
+            system_prompt = build_system_prompt(past_context, user_id=effective_user_id)
             
             # 4. Generate Response (Groq - ultra fast!)
             if llm_client and llm_client.is_ready:
@@ -345,17 +361,18 @@ async def websocket_endpoint(websocket: WebSocket):
 # Helper Functions
 # =============================================================================
 
-def build_system_prompt(memory_context: str = "") -> str:
+def build_system_prompt(memory_context: str = "", user_id: str = "Friend") -> str:
     """
     Build the system prompt for Nemo with optional memory context.
     
     Args:
         memory_context: Formatted string of relevant memories
+        user_id: The name/ID of the user interacting with Nemo
         
     Returns:
         Complete system prompt
     """
-    base_prompt = """You are Nemo, a sassy and empathetic friend.
+    base_prompt = f"""You are Nemo, a sassy and empathetic friend. You are talking to {user_id}.
 
 PERSONALITY:
 - Warm, caring, and witty
@@ -397,7 +414,8 @@ async def async_save_memory(
     logger.info("💾 Saving memory in background...")
     
     if memory_service and memory_service.is_enabled:
-        memory_service.save_interaction(user_text, agent_text, user_id)
+        # Use extract_and_store which mimics the interaction saving logic
+        memory_service.extract_and_store(user_text, agent_text, user_id=user_id)
 
 
 # =============================================================================

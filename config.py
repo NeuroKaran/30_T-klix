@@ -35,9 +35,9 @@ class OllamaModel(Enum):
     """Available Ollama models."""
     DEEPSEEK_OCR = "deepseek-ocr:3b"
     FUNCTIONGEMMA = "functiongemma:270m"
-    QWEN3_VL = "qwen3-vl:8b"
     DEEPSEEK_R1 = "deepseek-r1:8b"
     QWEN2_5_CODER = "qwen2.5-coder:3b"
+    QWEN3_VL = "qwen3-vl:2b"
 
 
 @dataclass
@@ -95,7 +95,7 @@ class Config:
     # Model Configuration
     default_provider: ModelProvider = field(default=ModelProvider.GEMINI)
     gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", GeminiModel.GEMINI_2_5_FLASH.value))
-    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", OllamaModel.QWEN2_5_CODER.value))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", OllamaModel.QWEN3_VL.value))
     
     # User Information
     user_name: str = field(default_factory=lambda: os.getenv("USER_NAME", "Karan"))
@@ -126,7 +126,7 @@ class Config:
     mem0_local: bool = field(default_factory=lambda: os.getenv("MEM0_LOCAL", "true").lower() == "true")
     mem0_qdrant_path: str = field(default_factory=lambda: os.getenv("MEM0_QDRANT_PATH", "./.qdrant_data"))
     mem0_embedder_model: str = field(default_factory=lambda: os.getenv("MEM0_EMBEDDER_MODEL", "nomic-embed-text-v2-moe:latest"))
-    mem0_llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen2.5-coder:3b"))
+    mem0_llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen3-vl:2b"))
     
     # Reasoning Traces Configuration
     enable_traces: bool = field(default_factory=lambda: os.getenv("ENABLE_TRACES", "true").lower() == "true")
@@ -135,7 +135,7 @@ class Config:
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         # Parse default model from environment
-        default_model = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:3b")
+        default_model = os.getenv("DEFAULT_MODEL", "qwen3-vl")
         if default_model.lower().startswith("gemini"):
             self.default_provider = ModelProvider.GEMINI
             self.gemini_model = default_model
