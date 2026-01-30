@@ -129,8 +129,8 @@ class Config:
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         # Parse default model from environment
-        default_model = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")
-        if default_model.startswith("gemini"):
+        default_model = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:3b")
+        if default_model.lower().startswith("gemini"):
             self.default_provider = ModelProvider.GEMINI
             self.gemini_model = default_model
         else:

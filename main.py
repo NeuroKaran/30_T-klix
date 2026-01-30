@@ -569,9 +569,35 @@ class AgentLoop:
         )
         
         try:
+            # Retrieve memory context for this specific turn
+            memory_context = ""
+            if self.memory_service.is_enabled:
+                memory_context = self.memory_service.get_memory_context(
+                    query=user_input,
+                    user_id=self.config.memory_user_id,
+                    max_memories=self.config.memory_search_limit,
+                )
+            
+            # Prepare message specifically for LLM (with context hidden from user in TUI)
+            # We create a temporary list of messages for this turn
+            current_messages = self.memory.get_messages()
+            
+            if memory_context:
+                # Append context to the last user message
+                # Note: We don't modify self.memory directly to keep the TUI clean
+                # We just create a modified copy for the LLM call
+                
+                # Check if the last message is indeed the user message we just added
+                if current_messages and current_messages[-1].role == "user":
+                    last_msg = current_messages[-1]
+                    enhanced_content = f"{last_msg.content}\n\n[MEMORY CONTEXT]\n{memory_context}\n[/MEMORY CONTEXT]"
+                    
+                    # Create a new list with the modified message
+                    current_messages = current_messages[:-1] + [Message(role="user", content=enhanced_content)]
+            
             # Get response from LLM
             response: LLMResponse = await self.client.chat(
-                self.memory.get_messages(),
+                current_messages,
                 tools=tools,
                 stream=False,
             )

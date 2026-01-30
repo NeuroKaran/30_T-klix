@@ -39,7 +39,8 @@ class Memory:
     def from_mem0(cls, data: dict[str, Any]) -> Memory:
         """Create Memory from mem0 API response."""
         memory_type = MemoryType.EPISODIC
-        if metadata := data.get("metadata", {}):
+        metadata = data.get("metadata") or {}
+        if metadata:
             if type_str := metadata.get("type"):
                 try:
                     memory_type = MemoryType(type_str)
@@ -50,7 +51,7 @@ class Memory:
             id=data.get("id", ""),
             content=data.get("memory", ""),
             memory_type=memory_type,
-            metadata=data.get("metadata", {}),
+            metadata=data.get("metadata") or {},
         )
 
 
@@ -115,6 +116,8 @@ class MemoryService:
         
         try:
             # mem0 v2 API requires both user_id and filters params
+            # BUT semantic search seems to fail with filters on some versions/configs?
+            # Let's try removing filters for search since user_id is passed
             result = self._client.search(
                 query=query,
                 user_id=user_id,
@@ -195,6 +198,7 @@ class MemoryService:
         # Build metadata
         mem_metadata = metadata or {}
         mem_metadata["type"] = memory_type.value
+        mem_metadata["user_id"] = user_id
         mem_metadata["timestamp"] = datetime.now().isoformat()
         
         try:
@@ -237,6 +241,7 @@ class MemoryService:
                 user_id=user_id,
                 metadata={
                     "type": memory_type.value,
+                    "user_id": user_id,
                     "source": "manual",
                     "timestamp": datetime.now().isoformat(),
                 },

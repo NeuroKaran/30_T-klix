@@ -10,10 +10,11 @@ A sophisticated TUI-based AI Agent that replicates the "Claude Code" interface, 
 - 🎨 **Beautiful TUI** - Dark mode interface with Tangerine Orange accents
 - 🧠 **Hybrid Brain** - Google Gemini (cloud) + Ollama (local) support
 - 🧠 **Persistent Memory** - Powered by Mem0 for long-term recall of user preferences and project context
-- 🔧 **Built-in Tools** - File operations, shell commands, web search, and project analysis
+- 🔧 **Built-in Tools** - File operations, shell commands, web search, and **OSINT suite** (DNS, WHOIS, Port Scanning)
 - 💬 **Slash Commands** - `/init`, `/config`, `/model`, `/clear`, `/help`, `/memory`, `/forget`, `/remember`
 - 📝 **Markdown Support** - Syntax-highlighted code and rich formatting
 - 🔄 **Streaming** - Real-time response streaming
+- 🚀 **Ecosystem** - Includes **Nemo** (AI Companion) and **Nova** (Advanced Platform) sub-projects
 
 ## Installation
 
@@ -66,7 +67,7 @@ python main.py --project ./my-project
 | `/forget` | Delete a memory or all memories |
 | `/remember` | Manually add a memory |
 | `/help` | Show all commands |
-| `/quit` | Exit Klix code |
+| `/quit` | Exit Klix code (alias: `/exit`) |
 
 ### Available Tools
 
@@ -78,8 +79,12 @@ The agent has access to these tools:
 - **append_file** - Append to files
 - **delete_file** - Delete files
 - **run_command** - Execute shell commands
-- **web_search** - Search the web
+- **web_search** - Search the web (alias: `search_web`)
 - **get_project_structure** - View project tree
+- **dns_lookup** - Perform DNS records lookup
+- **whois_lookup** - Get domain registration info
+- **port_scan** - Scan target for open ports
+- **http_headers** - Fetch and analyze HTTP headers
 
 ## Architecture
 
@@ -139,6 +144,21 @@ By default, all safety settings are set to `BLOCK_NONE` for maximum developer fr
 - Google AI Studio API key (for Gemini)
 - Mem0 API key (for persistent memory)
 - Ollama installed locally (for local mode)
+- OSINT Deps: `pip install dnspython python-whois requests`
+
+## Project Ecosystem
+
+### 🤖 Nemo
+A personalized AI companion with a dual-interface approach:
+- **Core**: Advanced LLM integration with fallback mechanisms.
+- **Frontend**: A modern, responsive web dashboard and a sleek TUI.
+- **Server**: FastAPI-based backend for seamless agent interaction.
+
+### 🌟 Nova
+A high-performance, modular platform designed for scale:
+- **Backend**: Robust Python backend with structured data models and agentic logic.
+- **Frontend**: A cutting-edge web interface built for speed and visual excellence.
+- **Design**: Focused on modularity and extensibility.
 
 ## License
 

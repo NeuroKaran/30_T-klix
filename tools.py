@@ -616,6 +616,24 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"Error searching the web: {str(e)}"
 
 
+# Alias for common hallucination
+@tool(
+    "search_web",
+    "Search the web for information (alias for web_search).",
+    [
+        ToolParameter(
+            name="query",
+            type="string",
+            description="The search query.",
+            required=True,
+        ),
+    ],
+)
+def search_web(query: str, max_results: int = 5) -> str:
+    """Alias for web_search."""
+    return web_search(query, max_results)
+
+
 # ============================================================================
 # Project Context Tools
 # ============================================================================
