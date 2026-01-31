@@ -1,0 +1,66 @@
+{
+  "session_id": "trace_20260131_083524",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T08:35:24.791336",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "Hi Klix",
+      "timestamp": "2026-01-31T08:35:30.579847"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I assist you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 293,
+        "completion_tokens": 10,
+        "total_tokens": 303
+      },
+      "timestamp": "2026-01-31T08:35:33.400095"
+    },
+    {
+      "event": "user_message",
+      "content": "Tell me the best holy place",
+      "timestamp": "2026-01-31T08:35:54.844850"
+    },
+    {
+      "event": "llm_response",
+      "content": "Based on your memories, Haridwar is a very holy place in India. It's known for its Ganges River and the Kumbh Mela festival, which attracts millions of pilgrims each year.\n\nFor someone planning a trip to a holy place like Haridwar, here are some tips:\n\n1. **Plan Your Trip**: Consider visiting during the monsoon season (July-September) when the river is at its highest level, making it easier to reach and immerse yourself in the experience.\n\n2. **Travel Tips**:\n   - Use public transportation options available in Haridwar or nearby areas.\n   - Check local guides or tourism websites for tips on how to navigate around the city safely and efficiently.\n\n3. **Distance**: The distance between Kendrapara and Haridwar is approximately 260 to 280 kilometers, so make sure you have enough time to travel and explore.\n\n4. **Visiting Points**:\n   - **Ganges River**: A must-visit site where pilgrims perform a holy dip.\n   - **Haridwar Mandir (Shiva Temple)**: The main temple in Haridwar is famous for its annual Kumbh Mela festival.\n   - **Kedar Nath Temple**: Dedicated to Lord Shiva, this temple also attracts a large number of devotees.\n\n5. **Safety and Hygiene**:\n   - Follow local hygiene practices, especially when visiting the Ganges.\n   - Be mindful of the crowds in Haridwar's main streets and markets.\n\nIf you have any specific questions or need more information about visiting Haridwar, feel free to ask!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1560,
+        "completion_tokens": 333,
+        "total_tokens": 1893
+      },
+      "timestamp": "2026-01-31T08:36:05.282390"
+    },
+    {
+      "event": "user_message",
+      "content": "tell me my favourite Ice-cream",
+      "timestamp": "2026-01-31T08:36:43.923933"
+    },
+    {
+      "event": "llm_response",
+      "content": "Your favourite ice cream is vanilla. You love it so much that you have a pet named Kiro, which can sometimes be seen enjoying some of your favourite treats!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1908,
+        "completion_tokens": 34,
+        "total_tokens": 1942
+      },
+      "timestamp": "2026-01-31T08:36:50.016010"
+    }
+  ]
+}

@@ -12,7 +12,9 @@ from typing import Any, AsyncGenerator, Callable
 
 from google import genai
 from google.genai import types
+from google.genai import types
 import ollama
+import json
 
 from config import Config, ModelProvider, get_config
 from logging_config import get_logger
@@ -111,7 +113,11 @@ class LLMClient(ABC):
 - Suggesting best practices and optimizations
 - Navigating and understanding codebases
 
-You have access to tools for file operations and web search. Use them when appropriate.
+You have access to tools for file operations and web search.
+CRITICAL: ONLY use tools when they are strictly necessary to answer the user's request.
+If you can answer based on your knowledge or the provided memory context (which will be clearly marked), do so directly WITHOUT calling any tools.
+NEVER call `read_file` or `ls` if you already have the necessary information in your memory context.
+When you do use a tool, do not provide any explanation before the tool call.
 Always be concise, accurate, and helpful. Format code with proper syntax highlighting.
 When making changes to files, explain what you're doing and why.
 You remember past conversations and user preferences - use this context to personalize your assistance."""
@@ -426,6 +432,124 @@ class OllamaClient(LLMClient):
                     "arguments": func.get("arguments", {}),
                 })
         
+        if not tool_calls:
+            # More robust JSON extraction for models that wrap it in backticks or include text
+            import re
+            
+            def find_balanced_json(text):
+                """Find first valid JSON object in text by balancing braces."""
+                start_idx = text.find('{')
+                if start_idx == -1:
+                    return None, None
+                
+                stack = 0
+                for i in range(start_idx, len(text)):
+                    if text[i] == '{':
+                        stack += 1
+                    elif text[i] == '}':
+                        stack -= 1
+                        if stack == 0:
+                            # Found a balanced block
+                            json_str = text[start_idx:i+1]
+                            return json_str, (start_idx, i+1)
+                return None, None
+
+            # Try to find JSON in markdown blocks first
+            json_str = None
+            full_match_text = None
+            
+            # Simple check for markdown block first
+            md_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if md_match:
+                json_str, _ = find_balanced_json(md_match.group(1))
+                if json_str:
+                    full_match_text = md_match.group(0)
+            
+            if not json_str:
+                # Try anywhere in the content
+                json_str, span = find_balanced_json(content)
+                if json_str:
+                    full_match_text = json_str
+
+            if json_str:
+                try:
+                    parsed = json.loads(json_str)
+                    candidates = [parsed] if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+                    
+                    extracted_calls = []
+                    is_fake_tool_call = False
+                    
+                    for candidate in candidates:
+                        if isinstance(candidate, dict) and "name" in candidate and "arguments" in candidate:
+                            tool_name = candidate['name']
+                            tool_args = candidate['arguments']
+                            
+                            # Handle fake tool calls where model wraps response in JSON
+                            # e.g., {"name":"None","arguments":{"message":"Hello!"}} or {"name":"none","arguments":{}}
+                            if tool_name in ("None", "none", None, ""):
+                                is_fake_tool_call = True
+                                # Extract the actual message from arguments if present
+                                if isinstance(tool_args, dict) and tool_args:
+                                    # Try common keys for the message content
+                                    actual_message = (
+                                        tool_args.get("message") or 
+                                        tool_args.get("response") or 
+                                        tool_args.get("content") or
+                                        tool_args.get("text") or
+                                        ""
+                                    )
+                                    if actual_message:
+                                        # Replace JSON with the extracted message
+                                        content = content.replace(full_match_text, actual_message).strip()
+                                    else:
+                                        # Empty arguments - just strip the JSON
+                                        content = content.replace(full_match_text, "").strip()
+                                else:
+                                    # No arguments or empty dict - strip the JSON
+                                    content = content.replace(full_match_text, "").strip()
+                                continue  # Don't add as a tool call
+                            
+                            extracted_calls.append({
+                                "id": f"call_{tool_name}",
+                                "name": tool_name,
+                                "arguments": tool_args,
+                            })
+                    
+                    if extracted_calls:
+                        from tools import registry
+                        valid_tools = [t.name for t in registry.list_tools()]
+                        filtered_calls = [tc for tc in extracted_calls if tc["name"] in valid_tools]
+                        
+                        if filtered_calls:
+                            tool_calls = filtered_calls
+                            # If we extracted JSON, remove the specific block from content.
+                            content = content.replace(full_match_text, "").strip()
+                        else:
+                            # Model tried to call invalid tools - try to extract message from args
+                            for ec in extracted_calls:
+                                args = ec.get("arguments", {})
+                                if isinstance(args, dict):
+                                    actual_message = (
+                                        args.get("message") or 
+                                        args.get("response") or 
+                                        args.get("content") or
+                                        args.get("text") or
+                                        ""
+                                    )
+                                    if actual_message:
+                                        content = content.replace(full_match_text, actual_message).strip()
+                                        break
+                            else:
+                                # No message found - just strip the invalid JSON
+                                content = content.replace(full_match_text, "").strip()
+                    
+                    # If we had a fake tool call and content is now empty, provide a fallback
+                    if is_fake_tool_call and not content.strip():
+                        content = "Hello! How can I help you today?"
+                        
+                except json.JSONDecodeError:
+                    pass
+
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,

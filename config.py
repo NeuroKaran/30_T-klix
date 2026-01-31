@@ -95,7 +95,7 @@ class Config:
     # Model Configuration
     default_provider: ModelProvider = field(default=ModelProvider.GEMINI)
     gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", GeminiModel.GEMINI_2_5_FLASH.value))
-    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", OllamaModel.QWEN3_VL.value))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", OllamaModel.QWEN2_5_CODER.value))
     
     # User Information
     user_name: str = field(default_factory=lambda: os.getenv("USER_NAME", "Karan"))
@@ -113,7 +113,8 @@ class Config:
     sliding_window_size: int = 20
     
     # Project Context
-    project_root: Path = field(default_factory=lambda: Path.cwd())
+    # Anchor project root to the directory containing this config file
+    project_root: Path = field(default_factory=lambda: Path(__file__).parent.resolve())
     
     # Memory Configuration (Mem0)
     mem0_api_key: str = field(default_factory=lambda: os.getenv("MEM0_API_KEY", ""))
@@ -126,7 +127,7 @@ class Config:
     mem0_local: bool = field(default_factory=lambda: os.getenv("MEM0_LOCAL", "true").lower() == "true")
     mem0_qdrant_path: str = field(default_factory=lambda: os.getenv("MEM0_QDRANT_PATH", "./.qdrant_data"))
     mem0_embedder_model: str = field(default_factory=lambda: os.getenv("MEM0_EMBEDDER_MODEL", "nomic-embed-text-v2-moe:latest"))
-    mem0_llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen3-vl:2b"))
+    mem0_llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen2.5-coder:3b"))
     
     # Reasoning Traces Configuration
     enable_traces: bool = field(default_factory=lambda: os.getenv("ENABLE_TRACES", "true").lower() == "true")
@@ -135,13 +136,18 @@ class Config:
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         # Parse default model from environment
-        default_model = os.getenv("DEFAULT_MODEL", "qwen3-vl")
+        default_model = os.getenv("DEFAULT_MODEL", "qwen2.5-coder")
         if default_model.lower().startswith("gemini"):
             self.default_provider = ModelProvider.GEMINI
             self.gemini_model = default_model
         else:
             self.default_provider = ModelProvider.OLLAMA
             self.ollama_model = default_model
+            
+        # Ensure qdrant path is absolute
+        # If it's relative, anchor it to project_root, not CWD
+        if not os.path.isabs(self.mem0_qdrant_path):
+            self.mem0_qdrant_path = str(self.project_root / self.mem0_qdrant_path)
     
     @property
     def current_model(self) -> str:

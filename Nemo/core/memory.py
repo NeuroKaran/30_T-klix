@@ -1,7 +1,7 @@
 """
-Klix - Memory Service using Mem0
-Provides persistent, personalized memory layer for the AI agent.
-Supports both Cloud API and Local (Qdrant + Ollama) modes.
+Nemo - Memory Service using Mem0
+Provides persistent, personalized memory layer for Nemo with its own Qdrant database.
+This is separate from Klix's memory to avoid conflicts.
 """
 
 from __future__ import annotations
@@ -11,15 +11,19 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Union
+from pathlib import Path
 
-# Import both Memory (local) and MemoryClient (cloud) from mem0
 from mem0 import Memory as Mem0Local
 from mem0 import MemoryClient as Mem0Cloud
+from dotenv import load_dotenv
 
-from config import Config, get_config
-from logging_config import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+
+# Load Nemo's .env
+nemo_env = Path(__file__).parent.parent / ".env"
+load_dotenv(nemo_env)
 
 
 class MemoryType(Enum):
@@ -58,21 +62,46 @@ class MemoryItem:
         )
 
 
-def _build_local_config(config: Config, client: Any):
-    """Build configuration for local mem0 setup using MemoryConfig objects."""
+@dataclass
+class NemoConfig:
+    """Nemo-specific configuration for memory."""
+    
+    # Nemo's own Qdrant path
+    project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.resolve())
+    
+    # Memory settings
+    memory_enabled: bool = field(default_factory=lambda: os.getenv("MEMORY_ENABLED", "true").lower() == "true")
+    mem0_local: bool = field(default_factory=lambda: os.getenv("MEM0_LOCAL", "true").lower() == "true")
+    mem0_api_key: str = field(default_factory=lambda: os.getenv("MEM0_API_KEY", ""))
+    memory_user_id: str = field(default_factory=lambda: os.getenv("NEMO_USER_ID", "Friend"))
+    
+    # Nemo-specific Qdrant path (separate from Klix)
+    qdrant_path: str = field(default_factory=lambda: os.getenv("NEMO_QDRANT_PATH", "./.qdrant_nemo"))
+    collection_name: str = field(default_factory=lambda: os.getenv("NEMO_COLLECTION_NAME", "nemo_memories"))
+    
+    # Ollama settings
+    ollama_host: str = field(default_factory=lambda: os.getenv("OLLAMA_HOST", "http://localhost:11434"))
+    embedder_model: str = field(default_factory=lambda: os.getenv("MEM0_EMBEDDER_MODEL", "nomic-embed-text-v2-moe:latest"))
+    llm_model: str = field(default_factory=lambda: os.getenv("MEM0_LLM_MODEL", "qwen2.5-coder:3b"))
+    
+    def __post_init__(self) -> None:
+        """Ensure qdrant path is absolute."""
+        if not os.path.isabs(self.qdrant_path):
+            self.qdrant_path = str(self.project_root / self.qdrant_path)
+
+
+def _build_nemo_config(config: NemoConfig, client: Any):
+    """Build configuration for Nemo's local mem0 setup."""
     from mem0.configs.base import MemoryConfig
     from mem0.vector_stores.configs import VectorStoreConfig
     from mem0.embeddings.configs import EmbedderConfig
     from mem0.llms.configs import LlmConfig
     
-    # Client is now passed in
-    # client = QdrantClient(path=os.path.abspath(config.mem0_qdrant_path))
-    
     return MemoryConfig(
         vector_store=VectorStoreConfig(
             provider="qdrant",
             config={
-                "collection_name": "klix_memories",
+                "collection_name": config.collection_name,
                 "client": client,
                 "embedding_model_dims": 768,  # nomic-embed-text-v2-moe dimensions
             }
@@ -80,14 +109,14 @@ def _build_local_config(config: Config, client: Any):
         embedder=EmbedderConfig(
             provider="ollama",
             config={
-                "model": config.mem0_embedder_model,
+                "model": config.embedder_model,
                 "ollama_base_url": config.ollama_host,
             }
         ),
         llm=LlmConfig(
             provider="ollama",
             config={
-                "model": config.mem0_llm_model,
+                "model": config.llm_model,
                 "ollama_base_url": config.ollama_host,
                 "temperature": 0.1,
                 "max_tokens": 2000,
@@ -98,16 +127,14 @@ def _build_local_config(config: Config, client: Any):
 
 
 @dataclass
-class MemoryService:
+class NemoMemoryService:
     """
-    Persistent memory layer using Mem0.
+    Nemo's persistent memory layer using Mem0.
     
-    Supports both Cloud API (MemoryClient) and Local (Memory with Qdrant + Ollama).
-    Provides semantic search and storage of memories across sessions.
-    Memories are stored per-user and can be scoped to projects.
+    Uses a separate Qdrant database from Klix to avoid conflicts.
     """
     
-    config: Config = field(default_factory=get_config)
+    config: NemoConfig = field(default_factory=NemoConfig)
     _client: Union[Mem0Local, Mem0Cloud, None] = field(default=None, repr=False)
     _qdrant_client: Any = field(default=None, repr=False)
     _is_local: bool = field(default=False, repr=False)
@@ -115,31 +142,30 @@ class MemoryService:
     def __post_init__(self) -> None:
         """Initialize the mem0 client (local or cloud)."""
         if not self.config.memory_enabled:
-            logger.info("Memory service is disabled.")
+            logger.info("Nemo Memory service is disabled.")
             return
         
         if self.config.mem0_local:
-            # Local mode: Use Qdrant + Ollama
-            logger.info("Initializing local mem0 with Qdrant and Ollama...")
+            # Local mode: Use Nemo's own Qdrant
+            logger.info(f"Initializing Nemo mem0 with Qdrant at {self.config.qdrant_path}...")
             try:
-                # Store client reference to close it properly later
                 from qdrant_client import QdrantClient
-                self._qdrant_client = QdrantClient(path=os.path.abspath(self.config.mem0_qdrant_path))
+                self._qdrant_client = QdrantClient(path=os.path.abspath(self.config.qdrant_path))
                 
                 # Build config with this client
-                local_config = _build_local_config(self.config, self._qdrant_client)
+                local_config = _build_nemo_config(self.config, self._qdrant_client)
                 
                 self._client = Mem0Local(config=local_config)
                 self._is_local = True
-                logger.info(f"Local mem0 initialized. Qdrant path: {self.config.mem0_qdrant_path}")
+                logger.info(f"Nemo mem0 initialized. Collection: {self.config.collection_name}")
             except Exception as e:
-                logger.error(f"Failed to initialize local mem0: {e}")
+                logger.error(f"Failed to initialize Nemo mem0: {e}")
                 self._client = None
         else:
             # Cloud mode: Use API key
             api_key = self.config.mem0_api_key
             if api_key:
-                logger.info("Initializing cloud mem0 with API key...")
+                logger.info("Initializing cloud mem0 for Nemo...")
                 self._client = Mem0Cloud(api_key=api_key)
                 self._is_local = False
             else:
@@ -150,17 +176,13 @@ class MemoryService:
         """Check if memory service is enabled and configured."""
         return self._client is not None and self.config.memory_enabled
     
-    def _get_filters(self, user_id: str) -> dict[str, str]:
-        """Build filters dict for mem0 API calls."""
-        return {"user_id": user_id}
-    
     async def close(self) -> None:
         """Close the memory service."""
-        logger.debug("Closing memory service")
+        logger.debug("Closing Nemo memory service")
         if self._qdrant_client:
             try:
                 self._qdrant_client.close()
-                logger.debug("Qdrant client closed.")
+                logger.debug("Nemo Qdrant client closed.")
             except Exception as e:
                 logger.warning(f"Error closing Qdrant client: {e}")
     
@@ -174,17 +196,7 @@ class MemoryService:
         user_id: str | None = None,
         limit: int = 10,
     ) -> list[MemoryItem]:
-        """
-        Search for relevant memories using semantic similarity.
-        
-        Args:
-            query: The search query
-            user_id: User identifier (defaults to config)
-            limit: Maximum number of results
-            
-        Returns:
-            List of relevant memories
-        """
+        """Search for relevant memories using semantic similarity."""
         if not self.is_enabled:
             return []
         
@@ -198,14 +210,13 @@ class MemoryService:
             )
             
             memories = []
-            # Handle both local and cloud response formats
             items = result.get("results", []) if isinstance(result, dict) else result
             for item in items:
                 memories.append(MemoryItem.from_mem0(item))
             return memories
             
         except Exception as e:
-            logger.error(f"Memory search failed: {e}")
+            logger.error(f"Nemo memory search failed: {e}")
             return []
     
     def get_all(
@@ -213,16 +224,7 @@ class MemoryService:
         user_id: str | None = None,
         limit: int = 20,
     ) -> list[MemoryItem]:
-        """
-        Get all memories for a user.
-        
-        Args:
-            user_id: User identifier (defaults to config)
-            limit: Maximum number of results
-            
-        Returns:
-            List of all memories
-        """
+        """Get all memories for a user."""
         if not self.is_enabled:
             return []
         
@@ -232,14 +234,13 @@ class MemoryService:
             result = self._client.get_all(user_id=user_id)
             
             memories = []
-            # Handle both local and cloud response formats
             items = result.get("results", []) if isinstance(result, dict) else result
             for item in items[:limit]:
                 memories.append(MemoryItem.from_mem0(item))
             return memories
             
         except Exception as e:
-            logger.error(f"Memory get_all failed: {e}")
+            logger.error(f"Nemo memory get_all failed: {e}")
             return []
     
     def add(
@@ -249,18 +250,7 @@ class MemoryService:
         memory_type: MemoryType = MemoryType.EPISODIC,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """
-        Add a conversation exchange to memory.
-        
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            user_id: User identifier (defaults to config)
-            memory_type: Type of memory to store
-            metadata: Additional metadata to store
-            
-        Returns:
-            True if successful
-        """
+        """Add a conversation exchange to memory."""
         if not self.is_enabled:
             return False
         
@@ -271,6 +261,7 @@ class MemoryService:
         mem_metadata["type"] = memory_type.value
         mem_metadata["user_id"] = user_id
         mem_metadata["timestamp"] = datetime.now().isoformat()
+        mem_metadata["source"] = "nemo"
         
         try:
             self._client.add(
@@ -281,7 +272,7 @@ class MemoryService:
             return True
             
         except Exception as e:
-            logger.error(f"Memory add failed: {e}")
+            logger.error(f"Nemo memory add failed: {e}")
             return False
     
     def add_text(
@@ -290,17 +281,7 @@ class MemoryService:
         user_id: str | None = None,
         memory_type: MemoryType = MemoryType.SEMANTIC,
     ) -> bool:
-        """
-        Add a simple text memory (for /remember command).
-        
-        Args:
-            text: The memory text to store
-            user_id: User identifier
-            memory_type: Type of memory
-            
-        Returns:
-            True if successful
-        """
+        """Add a simple text memory."""
         if not self.is_enabled:
             return False
         
@@ -313,26 +294,18 @@ class MemoryService:
                 metadata={
                     "type": memory_type.value,
                     "user_id": user_id,
-                    "source": "manual",
+                    "source": "nemo_manual",
                     "timestamp": datetime.now().isoformat(),
                 },
             )
             return True
             
         except Exception as e:
-            logger.error(f"Memory add_text failed: {e}")
+            logger.error(f"Nemo memory add_text failed: {e}")
             return False
     
     def delete(self, memory_id: str) -> bool:
-        """
-        Delete a specific memory by ID.
-        
-        Args:
-            memory_id: The memory ID to delete
-            
-        Returns:
-            True if successful
-        """
+        """Delete a specific memory by ID."""
         if not self.is_enabled:
             return False
         
@@ -340,19 +313,11 @@ class MemoryService:
             self._client.delete(memory_id=memory_id)
             return True
         except Exception as e:
-            logger.error(f"Memory delete failed: {e}")
+            logger.error(f"Nemo memory delete failed: {e}")
             return False
     
     def delete_all(self, user_id: str | None = None) -> bool:
-        """
-        Delete all memories for a user.
-        
-        Args:
-            user_id: User identifier (defaults to config)
-            
-        Returns:
-            True if successful
-        """
+        """Delete all memories for a user."""
         if not self.is_enabled:
             return False
         
@@ -362,7 +327,7 @@ class MemoryService:
             self._client.delete_all(user_id=user_id)
             return True
         except Exception as e:
-            logger.error(f"Memory delete_all failed: {e}")
+            logger.error(f"Nemo memory delete_all failed: {e}")
             return False
     
     # =========================================================================
@@ -375,20 +340,7 @@ class MemoryService:
         user_id: str | None = None,
         max_memories: int = 5,
     ) -> str:
-        """
-        Build a context string from relevant memories for LLM injection.
-        
-        This is the main method used by the agent to retrieve memories
-        before sending a prompt to the LLM.
-        
-        Args:
-            query: The user's current query
-            user_id: User identifier
-            max_memories: Maximum memories to include
-            
-        Returns:
-            Formatted string of relevant memories, or empty string
-        """
+        """Build a context string from relevant memories for LLM injection."""
         if not self.is_enabled:
             return ""
         
@@ -422,20 +374,7 @@ class MemoryService:
         assistant_response: str,
         user_id: str | None = None,
     ) -> bool:
-        """
-        Extract and store memories from a conversation exchange.
-        
-        Called automatically after each exchange if auto_extract is enabled.
-        Mem0 handles the extraction - we just need to pass the messages.
-        
-        Args:
-            user_input: The user's message
-            assistant_response: The assistant's response
-            user_id: User identifier
-            
-        Returns:
-            True if successful
-        """
+        """Extract and store memories from a conversation exchange."""
         if not self.is_enabled:
             return False
         
@@ -449,10 +388,6 @@ class MemoryService:
             user_id=user_id,
             memory_type=MemoryType.EPISODIC,
         )
-    
-    # =========================================================================
-    # Utility Methods
-    # =========================================================================
     
     def get_stats(self, user_id: str | None = None) -> dict[str, Any]:
         """Get memory statistics for a user."""
@@ -470,6 +405,8 @@ class MemoryService:
         return {
             "enabled": True,
             "local_mode": self._is_local,
+            "qdrant_path": self.config.qdrant_path,
+            "collection_name": self.config.collection_name,
             "user_id": user_id,
             "total_memories": len(memories),
             "by_type": {t.value: count for t, count in type_counts.items()},
@@ -480,33 +417,30 @@ class MemoryService:
 # Module-level convenience functions
 # =============================================================================
 
-_memory_service: MemoryService | None = None
+_nemo_memory_service: NemoMemoryService | None = None
 
 
-def get_memory_service(config: Config | None = None) -> MemoryService:
-    """Get or create the global MemoryService instance."""
-    global _memory_service
+def get_nemo_memory_service(config: NemoConfig | None = None) -> NemoMemoryService:
+    """Get or create Nemo's global MemoryService instance."""
+    global _nemo_memory_service
     
-    if _memory_service is None:
-        _memory_service = MemoryService(config=config or get_config())
+    if _nemo_memory_service is None:
+        _nemo_memory_service = NemoMemoryService(config=config or NemoConfig())
     
-    return _memory_service
+    return _nemo_memory_service
 
 
-def reset_memory_service() -> None:
-    """Reset the global MemoryService (for testing)."""
-    global _memory_service
-    _memory_service = None
+def reset_nemo_memory_service() -> None:
+    """Reset Nemo's global MemoryService (for testing)."""
+    global _nemo_memory_service
+    _nemo_memory_service = None
 
-
-# =============================================================================
-# Exports
-# =============================================================================
 
 __all__ = [
     "MemoryItem",
     "MemoryType",
-    "MemoryService",
-    "get_memory_service",
-    "reset_memory_service",
+    "NemoConfig",
+    "NemoMemoryService",
+    "get_nemo_memory_service",
+    "reset_nemo_memory_service",
 ]

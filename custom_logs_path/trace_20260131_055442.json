@@ -1,0 +1,66 @@
+{
+  "session_id": "trace_20260131_055442",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T05:54:42.967515",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "Hello do you remember where I was planning to go?",
+      "timestamp": "2026-01-31T05:55:04.607316"
+    },
+    {
+      "event": "llm_response",
+      "content": "Yes, it seems like your plan was to visit Haridwar. Have you decided when or how you want to get there? If you need help with booking tickets, finding accommodations, or planning your trip, feel free to let me know!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1343,
+        "completion_tokens": 50,
+        "total_tokens": 1393
+      },
+      "timestamp": "2026-01-31T05:55:10.732466"
+    },
+    {
+      "event": "user_message",
+      "content": "I want you find the distance using web search",
+      "timestamp": "2026-01-31T05:55:47.555021"
+    },
+    {
+      "event": "llm_response",
+      "content": "{\"name\": \"web_search\", \"arguments\": {\"query\": \"distance from karan's home to haridwar\"}}",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1412,
+        "completion_tokens": 26,
+        "total_tokens": 1438
+      },
+      "timestamp": "2026-01-31T05:55:53.172565"
+    },
+    {
+      "event": "user_message",
+      "content": "I want you find the distance using web search",
+      "timestamp": "2026-01-31T06:01:17.440223"
+    },
+    {
+      "event": "llm_response",
+      "content": "{\"name\": \"web_search\", \"arguments\": {\"query\": \"distance from karan's home to haridwar\"}}",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1456,
+        "completion_tokens": 26,
+        "total_tokens": 1482
+      },
+      "timestamp": "2026-01-31T06:01:28.143985"
+    }
+  ]
+}

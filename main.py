@@ -550,6 +550,43 @@ class AgentLoop:
         
         return tool_responses
     
+    def _is_trivial_query(self, user_input: str) -> bool:
+        """
+        Check if the user's input is a trivial/simple query that doesn't need memory context.
+        
+        This prevents unnecessary memory injection for simple greetings and short queries,
+        which can confuse the LLM into responding to irrelevant memories.
+        """
+        # Normalize input
+        normalized = user_input.strip().lower()
+        
+        # Common greetings and trivial phrases
+        trivial_patterns = {
+            "hello", "hi", "hey", "hola", "howdy", "greetings",
+            "good morning", "good afternoon", "good evening", "good night",
+            "thanks", "thank you", "thx", "ty",
+            "bye", "goodbye", "see you", "later",
+            "ok", "okay", "sure", "yes", "no", "yep", "nope",
+            "what's up", "whats up", "sup", "wassup",
+            "how are you", "how r u", "hru",
+        }
+        
+        # Check exact matches
+        if normalized in trivial_patterns:
+            return True
+        
+        # Check if starts with a greeting
+        greeting_starts = ("hi ", "hey ", "hello ", "thanks ", "thank you ")
+        for greeting in greeting_starts:
+            if normalized.startswith(greeting) and len(normalized) < 30:
+                return True
+        
+        # Very short queries (less than 10 chars) are typically not memory-worthy
+        if len(normalized) < 10:
+            return True
+        
+        return False
+
     async def _chat(self, user_input: str) -> None:
         """Process a chat message and get response."""
         # Add user message
@@ -559,8 +596,11 @@ class AgentLoop:
         # Log user message to traces
         self.reasoning_logger.log_user_message(user_input)
         
-        # Get tools for LLM
-        tools = registry.get_tools_for_llm()
+        # Check if this is a trivial query (greetings, short phrases, etc.)
+        is_trivial = self._is_trivial_query(user_input)
+        
+        # Get tools for LLM (skip for trivial queries to prevent unnecessary tool calls)
+        tools = None if is_trivial else registry.get_tools_for_llm()
         
         # Start thinking indicator
         self.tui.state.is_thinking = True
@@ -569,9 +609,9 @@ class AgentLoop:
         )
         
         try:
-            # Retrieve memory context for this specific turn
+            # Retrieve memory context for this specific turn (skip for trivial queries)
             memory_context = ""
-            if self.memory_service.is_enabled:
+            if self.memory_service.is_enabled and not is_trivial:
                 memory_context = self.memory_service.get_memory_context(
                     query=user_input,
                     user_id=self.config.memory_user_id,

@@ -1,0 +1,78 @@
+{
+  "session_id": "trace_20260131_082304",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T08:23:04.300657",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:23:11.900020"
+    },
+    {
+      "event": "llm_response",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_web_search",
+          "name": "web_search",
+          "arguments": {
+            "query": "haridwar pilgrimage"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1515,
+        "completion_tokens": 20,
+        "total_tokens": 1535
+      },
+      "timestamp": "2026-01-31T08:23:17.322922"
+    },
+    {
+      "event": "tool_result",
+      "tool_name": "web_search",
+      "arguments": {
+        "query": "haridwar pilgrimage"
+      },
+      "result": "No results found for: haridwar pilgrimage",
+      "timestamp": "2026-01-31T08:23:17.962723"
+    },
+    {
+      "event": "llm_response",
+      "content": "It seems like there were no relevant results when searching for \"Haridwar pilgrimage\". Perhaps you could try using different keywords or specifying more details in your search query. Let me know if you need any other assistance!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1488,
+        "completion_tokens": 44,
+        "total_tokens": 1532
+      },
+      "timestamp": "2026-01-31T08:23:18.917998"
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:23:25.466418"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! It seems you have a list of interests and plans. If you're interested in visiting Haridwar, I can provide some general information about the pilgrimage:\n\nHaridwar is one of India's most sacred pilgrimage sites, known as Kashi Vishwanath Temple. It's located on the banks of the Ganges River and is considered one of the holiest places for Hindus worldwide. The annual Kumbh Mela festival in Haridwar attracts millions of devotees.\n\nIf you're planning a trip to Haridwar, it might be helpful to check out some travel guides or websites that specialize in religious tourism. You can also book accommodations and plan your itinerary based on the time of year when the pilgrimage is most active.\n\nLet me know if you need any specific information about visiting Haridwar!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1618,
+        "completion_tokens": 164,
+        "total_tokens": 1782
+      },
+      "timestamp": "2026-01-31T08:23:33.308560"
+    }
+  ]
+}

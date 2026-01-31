@@ -1,0 +1,66 @@
+{
+  "session_id": "trace_20260131_083028",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T08:30:28.638178",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:30:31.945226"
+    },
+    {
+      "event": "llm_response",
+      "content": "",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1439,
+        "completion_tokens": 14,
+        "total_tokens": 1453
+      },
+      "timestamp": "2026-01-31T08:30:35.234721"
+    },
+    {
+      "event": "user_message",
+      "content": "hi",
+      "timestamp": "2026-01-31T08:30:41.934898"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1441,
+        "completion_tokens": 12,
+        "total_tokens": 1453
+      },
+      "timestamp": "2026-01-31T08:30:44.641545"
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:30:50.788671"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I assist you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1461,
+        "completion_tokens": 10,
+        "total_tokens": 1471
+      },
+      "timestamp": "2026-01-31T08:30:53.960646"
+    }
+  ]
+}

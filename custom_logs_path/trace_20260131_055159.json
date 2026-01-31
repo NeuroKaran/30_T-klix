@@ -1,0 +1,66 @@
+{
+  "session_id": "trace_20260131_055159",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T05:51:59.590586",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "Hi klix, How are you?",
+      "timestamp": "2026-01-31T05:52:07.356435"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello Karan! I'm here to help. How can I assist you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1344,
+        "completion_tokens": 18,
+        "total_tokens": 1362
+      },
+      "timestamp": "2026-01-31T05:52:12.888784"
+    },
+    {
+      "event": "user_message",
+      "content": "clear",
+      "timestamp": "2026-01-31T05:52:46.594412"
+    },
+    {
+      "event": "llm_response",
+      "content": "I'm ready to help! What would you like to do?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1363,
+        "completion_tokens": 14,
+        "total_tokens": 1377
+      },
+      "timestamp": "2026-01-31T05:52:52.028877"
+    },
+    {
+      "event": "user_message",
+      "content": "i want to visit haridwar",
+      "timestamp": "2026-01-31T05:53:49.751028"
+    },
+    {
+      "event": "llm_response",
+      "content": "Sure, I can help with that. Where exactly would you like to go for your trip to Haridwar?\n\nIf you're looking for a specific location or activity related to Haridwar, please let me know!",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1393,
+        "completion_tokens": 45,
+        "total_tokens": 1438
+      },
+      "timestamp": "2026-01-31T05:53:55.696687"
+    }
+  ]
+}

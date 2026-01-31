@@ -1,0 +1,50 @@
+{
+  "session_id": "trace_20260131_083400",
+  "total_events": 5,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T08:34:00.272542",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:34:02.925515"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I assist you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 291,
+        "completion_tokens": 10,
+        "total_tokens": 301
+      },
+      "timestamp": "2026-01-31T08:34:05.645653"
+    },
+    {
+      "event": "user_message",
+      "content": "Hello there!",
+      "timestamp": "2026-01-31T08:34:34.991838"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 313,
+        "completion_tokens": 10,
+        "total_tokens": 323
+      },
+      "timestamp": "2026-01-31T08:34:37.845810"
+    }
+  ]
+}

@@ -33,8 +33,8 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # Import core services
-from mem_0 import MemoryService, get_memory_service  # Import from root
-from core.llm import GroqClient, get_groq_client
+from core.memory import NemoMemoryService, get_nemo_memory_service  # Use Nemo's own memory
+from core.llm import GeminiClient, get_gemini_client
 from core.tts import TextToSpeech, get_tts_service, VOICE_OPTIONS
 
 # Load environment variables
@@ -101,8 +101,8 @@ class MemoryRequest(BaseModel):
 # =============================================================================
 
 # Global service instances
-memory_service: MemoryService | None = None
-llm_client: GroqClient | None = None
+memory_service: NemoMemoryService | None = None
+llm_client: GeminiClient | None = None
 tts_service: TextToSpeech | None = None
 
 
@@ -114,23 +114,26 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Nemo services...")
     
     # Initialize services
-    memory_service = get_memory_service()
-    llm_client = get_groq_client()
+    memory_service = get_nemo_memory_service()
+    llm_client = get_gemini_client()
     tts_service = get_tts_service()
     
     # Log service status
-    logger.info(f"🧠 Memory: {'✓ Enabled' if memory_service.is_enabled else '✗ Disabled'}")
-    logger.info(f"⚡ LLM: {'✓ Ready' if llm_client.is_ready else '✗ Not Ready'}")
-    logger.info(f"🔊 TTS: Initialized with voice {tts_service.voice}")
+    logger.info(f"🧠 Memory: {'✓ Enabled' if memory_service and memory_service.is_enabled else '✗ Disabled'}")
+    logger.info(f"⚡ LLM: {'✓ Ready' if llm_client and llm_client.is_ready else '✗ Not Ready'}")
+    if tts_service:
+        logger.info(f"🔊 TTS: Initialized with voice {tts_service.voice}")
+    else:
+        logger.warning("🔊 TTS: Not Initialized")
     
     yield
     
     # Cleanup
     logger.info("🛑 Shutting down Nemo services...")
     if memory_service:
-        memory_service.close()
+        await memory_service.close()
     if llm_client:
-        llm_client.close()
+        await llm_client.close()
 
 
 # =============================================================================
@@ -411,11 +414,12 @@ async def async_save_memory(
     This runs in the background after the response is sent,
     ensuring zero added latency for the user.
     """
-    logger.info("💾 Saving memory in background...")
-    
     if memory_service and memory_service.is_enabled:
+        logger.info("💾 Saving memory in background...")
         # Use extract_and_store which mimics the interaction saving logic
         memory_service.extract_and_store(user_text, agent_text, user_id=user_id)
+    else:
+        logger.debug("💾 Memory disabled, skipping background save.")
 
 
 # =============================================================================

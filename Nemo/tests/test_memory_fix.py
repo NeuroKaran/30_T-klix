@@ -24,8 +24,8 @@ async def test_memory():
             logger.info(f"Received: {response_1}")
             
             # Allow some time for memory to be saved (it's backgrounded)
-            logger.info("Waiting for memory to save...")
-            await asyncio.sleep(4)
+            logger.info("Waiting for memory to save (15s)...")
+            await asyncio.sleep(15)
             
             # Step 2: Test retrieval
             message_2 = "What is my name?"

@@ -1,0 +1,50 @@
+{
+  "session_id": "trace_20260131_082837",
+  "total_events": 5,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T08:28:37.011150",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:28:38.878194"
+    },
+    {
+      "event": "llm_response",
+      "content": "{\"name\": \"none\", \"arguments\": {}}",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1439,
+        "completion_tokens": 12,
+        "total_tokens": 1451
+      },
+      "timestamp": "2026-01-31T08:28:42.044845"
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T08:28:49.682864"
+    },
+    {
+      "event": "llm_response",
+      "content": "{\"name\": \"none\", \"arguments\": {}}",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1461,
+        "completion_tokens": 12,
+        "total_tokens": 1473
+      },
+      "timestamp": "2026-01-31T08:28:53.002481"
+    }
+  ]
+}

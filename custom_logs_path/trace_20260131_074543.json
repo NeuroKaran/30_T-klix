@@ -1,0 +1,70 @@
+{
+  "session_id": "trace_20260131_074543",
+  "total_events": 5,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T07:45:43.625640",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-01-31T07:45:49.833005"
+    },
+    {
+      "event": "llm_response",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_read_file",
+          "name": "read_file",
+          "arguments": {
+            "filepath": "/path/to/ankit/guide.txt"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1436,
+        "completion_tokens": 24,
+        "total_tokens": 1460
+      },
+      "timestamp": "2026-01-31T07:45:56.774783"
+    },
+    {
+      "event": "tool_result",
+      "tool_name": "read_file",
+      "arguments": {
+        "filepath": "/path/to/ankit/guide.txt"
+      },
+      "result": "Error: File '/path/to/ankit/guide.txt' does not exist.",
+      "timestamp": "2026-01-31T07:45:56.775600"
+    },
+    {
+      "event": "llm_response",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_read_file",
+          "name": "read_file",
+          "arguments": {
+            "filepath": "/home/ankit/Documents/guide.txt"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1422,
+        "completion_tokens": 23,
+        "total_tokens": 1445
+      },
+      "timestamp": "2026-01-31T07:45:57.405153"
+    }
+  ]
+}

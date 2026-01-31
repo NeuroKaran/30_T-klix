@@ -298,17 +298,15 @@ RULES:
         logger.info("Gemini client closed")
 
 
+
 # =============================================================================
 # Module-level singleton & Aliases
 # =============================================================================
 
-# Alias for compatibility with server.py
-GroqClient = GeminiClient
-
 _llm_client: GeminiClient | None = None
 
 
-def get_groq_client() -> GeminiClient:
+def get_gemini_client() -> GeminiClient:
     """Get or create the global LLM client instance (Gemini)."""
     global _llm_client
     if _llm_client is None:
@@ -316,9 +314,9 @@ def get_groq_client() -> GeminiClient:
     return _llm_client
 
 
-def get_gemini_client() -> GeminiClient:
-    """Alias for get_groq_client."""
-    return get_groq_client()
+def get_groq_client() -> GeminiClient:
+    """Deprecated: Use get_gemini_client instead."""
+    return get_gemini_client()
 
 
 def init_llm_client(

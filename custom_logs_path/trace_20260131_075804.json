@@ -1,0 +1,34 @@
+{
+  "session_id": "trace_20260131_075804",
+  "total_events": 3,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T07:58:04.331124",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "my friend is going to goa",
+      "timestamp": "2026-01-31T07:58:28.528441"
+    },
+    {
+      "event": "llm_response",
+      "content": "```json\n{\"name\": \"web_search\", \"arguments\": {\"query\": \"Goa vacation packages\"}}\n```",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1458,
+        "completion_tokens": 24,
+        "total_tokens": 1482
+      },
+      "timestamp": "2026-01-31T07:58:34.231218"
+    }
+  ]
+}

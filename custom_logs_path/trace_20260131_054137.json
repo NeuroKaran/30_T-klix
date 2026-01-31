@@ -1,0 +1,50 @@
+{
+  "session_id": "trace_20260131_054137",
+  "total_events": 5,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-01-31T05:41:37.362394",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent"
+      },
+      "config": {
+        "model": "qwen2.5-coder:3b",
+        "provider": "ollama"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello klix, How are you?",
+      "timestamp": "2026-01-31T05:41:47.819848"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! I'm just a computer program, so I don't have feelings, but I'm here and ready to help you. How can I assist you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1332,
+        "completion_tokens": 34,
+        "total_tokens": 1366
+      },
+      "timestamp": "2026-01-31T05:41:53.693108"
+    },
+    {
+      "event": "user_message",
+      "content": "I am karan",
+      "timestamp": "2026-01-31T05:42:22.917779"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello Karan! How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1380,
+        "completion_tokens": 12,
+        "total_tokens": 1392
+      },
+      "timestamp": "2026-01-31T05:42:28.401626"
+    }
+  ]
+}

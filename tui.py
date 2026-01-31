@@ -305,6 +305,23 @@ class GeminiCodeTUI:
             icon = "ℹ️"
             default_title = "System"
         
+        # Try to parse JSON content
+        import json
+        try:
+            # Check if it looks like JSON first to avoid unnecessary parsing
+            stripped = content.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                data = json.loads(stripped)
+                if isinstance(data, dict):
+                    # Check for common message fields
+                    if "message" in data:
+                        content = data["message"]
+                        # If there's a name, we could use it, but for now just use the message
+                    elif "response" in data:
+                        content = data["response"]
+        except json.JSONDecodeError:
+            pass  # Not JSON, use original content
+        
         # Parse Markdown
         md_content = Markdown(content)
         
