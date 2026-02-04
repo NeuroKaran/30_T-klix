@@ -1,0 +1,35 @@
+{
+  "session_id": "trace_20260204_143336",
+  "total_events": 3,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-02-04T14:33:36.945702",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent",
+        "session_id": "c80a848a-6a2a-4ce5-a300-b457145155d3"
+      },
+      "config": {
+        "model": "gemini-2.5-flash",
+        "provider": "gemini"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "\u0014",
+      "timestamp": "2026-02-04T14:39:09.507445"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! I'm Klix, your AI coding assistant. How can I help you today? Do you have a coding problem, a question, or something you'd like to discuss?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 210,
+        "completion_tokens": 39,
+        "total_tokens": 270
+      },
+      "timestamp": "2026-02-04T14:39:11.967673"
+    }
+  ]
+}

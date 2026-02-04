@@ -90,6 +90,7 @@ def setup_logging(
     log_file: bool = True,
     console: bool = True,
     log_format: str = LOG_FORMAT,
+    verbose: bool = False,
 ) -> None:
     """
     Configure logging for the application.
@@ -100,6 +101,7 @@ def setup_logging(
         log_file: Whether to enable file logging.
         console: Whether to enable console logging.
         log_format: Format string for log messages.
+        verbose: If True, sets level to DEBUG (unless level is explicit).
     """
     global _configured
     
@@ -108,7 +110,10 @@ def setup_logging(
     
     # Determine log level
     if level is None:
-        level = os.getenv("LOG_LEVEL", "INFO").upper()
+        if verbose:
+            level = logging.DEBUG
+        else:
+            level = os.getenv("LOG_LEVEL", "INFO").upper()
     
     if isinstance(level, str):
         level = getattr(logging, level, logging.INFO)

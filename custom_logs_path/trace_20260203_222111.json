@@ -1,0 +1,19 @@
+{
+  "session_id": "trace_20260203_222111",
+  "total_events": 1,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-02-03T22:21:11.016885",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent",
+        "session_id": "2f36ce52-4fa3-4b10-8de8-44fbc60a9a23"
+      },
+      "config": {
+        "model": "gemini-2.5-flash",
+        "provider": "gemini"
+      }
+    }
+  ]
+}

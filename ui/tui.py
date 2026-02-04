@@ -26,6 +26,17 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+# prompt_toolkit for advanced input handling with key bindings
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.styles import Style as PTStyle
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    PROMPT_TOOLKIT_AVAILABLE = False
+
 from config import Config, get_config
 
 
@@ -81,8 +92,57 @@ class GeminiCodeTUI:
         self.console = Console(force_terminal=True, color_system="truecolor")
         self.state = TUIState(current_model=self.config.current_model)
         
+        # Approval mode callback (set by runtime)
+        self.on_toggle_mode: callable = None
+        
+        # Set up prompt_toolkit session if available
+        self._setup_prompt_session()
+        
         # Define styles based on theme
         self._setup_styles()
+    
+    def _setup_prompt_session(self) -> None:
+        """Set up prompt_toolkit with custom key bindings."""
+        if not PROMPT_TOOLKIT_AVAILABLE:
+            self.prompt_session = None
+            return
+        
+        # Track current mode for live display
+        self._current_mode_display = "suggest"
+        
+        # Store reference to self for use in callbacks
+        tui_self = self
+        
+        # Create key bindings
+        kb = KeyBindings()
+        
+        # Helper function for mode toggle
+        def do_toggle_mode():
+            """Toggle approval mode and return the new mode name."""
+            if tui_self.on_toggle_mode:
+                return tui_self.on_toggle_mode()
+            return None
+        
+        # Primary Binding: Ctrl+T
+        @kb.add('c-t', eager=True)
+        def handle_ctrl_t(event):
+            mode_name = do_toggle_mode()
+            if mode_name:
+                tui_self._current_mode_display = mode_name
+                event.app.output.write(f"\r\033[K")
+                event.app.output.write(f"  \u2714 Mode: \033[1;38;5;208m{mode_name}\033[0m\r\n")
+                event.app.output.flush()
+        
+        # Create prompt session
+        self.prompt_session = PromptSession(
+            key_bindings=kb,
+            style=PTStyle.from_dict({
+                'prompt': '#ff8c00 bold',
+            }),
+        )
+        
+        # Store toggle function for use in render_input_prompt
+        self._do_toggle_mode = do_toggle_mode
     
     def _setup_styles(self) -> None:
         """Set up custom styles based on theme configuration."""
@@ -199,20 +259,60 @@ class GeminiCodeTUI:
         """
         Render the input prompt at the bottom.
         Returns the user's input.
+        Supports Ctrl+T to toggle approval mode.
         """
         self.console.print()
         
-        # Actual input with styled prompt
         try:
-            prompt_text = Text()
-            prompt_text.append("> ", style=self.styles["accent"])
-            
-            user_input = Prompt.ask(
-                prompt_text,
-                console=self.console,
-                default="",
-            )
-            return user_input.strip()
+            # Use prompt_toolkit if available (supports key bindings)
+            if PROMPT_TOOLKIT_AVAILABLE and self.prompt_session:
+                # Get current mode for display with color coding
+                mode_hint = ""
+                if self.on_toggle_mode:
+                    from core.approval import get_approval_manager
+                    mgr = get_approval_manager()
+                    mode_name = mgr.mode.value
+                    # Color-code modes: suggest=blue, auto_edit=yellow, full_auto=orange, yolo=red
+                    mode_colors = {
+                        "suggest": "#5599ff",
+                        "auto_edit": "#ffcc00",
+                        "full_auto": "#ff8c00", 
+                        "yolo": "#ff3333",
+                    }
+                    mode_color = mode_colors.get(mode_name, "#888888")
+                    mode_hint = f' <style fg="{mode_color}" bold="true">[{mode_name}]</style>'
+                
+                user_input = self.prompt_session.prompt(
+                    HTML(f'<style fg="#ff8c00" bold="true">&gt;</style>{mode_hint} '),
+                    placeholder=HTML(f'<style fg="#666666">{placeholder}</style>')
+                )
+                
+                # Post-process: Check if ^T (ASCII 20) was typed - fallback for Windows
+                if '\x14' in user_input:
+                    # Toggle mode for each ^T found
+                    toggle_count = user_input.count('\x14')
+                    for _ in range(toggle_count):
+                        if hasattr(self, '_do_toggle_mode') and self._do_toggle_mode:
+                            new_mode = self._do_toggle_mode()
+                            if new_mode:
+                                self._current_mode_display = new_mode
+                                self.console.print(f"  [#ff8c00]\u2714 Mode: {new_mode}[/]")
+                    # Remove ^T from input
+                    user_input = user_input.replace('\x14', '')
+                
+                return user_input.strip()
+
+            else:
+                # Fallback to rich Prompt
+                prompt_text = Text()
+                prompt_text.append("> ", style=self.styles["accent"])
+                
+                user_input = Prompt.ask(
+                    prompt_text,
+                    console=self.console,
+                    default="",
+                )
+                return user_input.strip()
         except (KeyboardInterrupt, EOFError):
             return ""
     
@@ -222,22 +322,32 @@ class GeminiCodeTUI:
         
         # Create footer table
         footer_table = Table.grid(expand=True, padding=(0, 1))
-        footer_table.add_column(justify="left", width=12)
+        footer_table.add_column(justify="left", width=20)
         footer_table.add_column(justify="left")
         
-        # Left side: shortcuts hint
+        # Left side: shortcuts hint with mode cycling visual
         shortcuts = Text()
         shortcuts.append("? ", style=self.styles["accent"])
-        shortcuts.append("for\n", style=self.styles["dim"])
-        shortcuts.append("shortcuts", style=self.styles["dim"])
+        shortcuts.append("help ", style=self.styles["dim"])
+        shortcuts.append("Ctrl+T ", style=self.styles["accent"])
+        shortcuts.append("↻ mode", style=self.styles["dim"])
         
-        # Right side: notice message
+        # Right side: notice message with current mode
         if notice:
             notice_text = Text(notice, style=self.styles["accent"])
         else:
+            # Get current mode for display
+            mode_info = ""
+            if self.on_toggle_mode:
+                try:
+                    from core.approval import get_approval_manager
+                    mgr = get_approval_manager()
+                    mode_info = f" | Mode: {mgr.mode.value}"
+                except Exception:
+                    pass
             notice_text = Text(
-                "Klix code is ready. Run '/help' for commands or '/init' to set up your project.",
-                style=self.styles["accent"]
+                f"'/help' for commands, Ctrl+T cycles modes{mode_info}",
+                style=self.styles["dim"]
             )
         
         footer_table.add_row(shortcuts, notice_text)

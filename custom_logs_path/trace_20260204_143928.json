@@ -1,0 +1,67 @@
+{
+  "session_id": "trace_20260204_143928",
+  "total_events": 7,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-02-04T14:39:28.854583",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent",
+        "session_id": "0cffc0c8-3d50-429d-825d-9dd34b6b9064"
+      },
+      "config": {
+        "model": "gemini-2.5-flash",
+        "provider": "gemini"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "\u0014",
+      "timestamp": "2026-02-04T14:39:43.673606"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! I'm Klix, your AI coding assistant. How can I help you today? Do you have a coding problem, a question, or something you'd like to discuss?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 210,
+        "completion_tokens": 39,
+        "total_tokens": 270
+      },
+      "timestamp": "2026-02-04T14:39:45.367263"
+    },
+    {
+      "event": "user_message",
+      "content": "Hello \u0014",
+      "timestamp": "2026-02-04T14:39:53.152497"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello! How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1816,
+        "completion_tokens": 9,
+        "total_tokens": 1845
+      },
+      "timestamp": "2026-02-04T14:39:54.781392"
+    },
+    {
+      "event": "user_message",
+      "content": "clear",
+      "timestamp": "2026-02-04T14:40:13.068112"
+    },
+    {
+      "event": "llm_response",
+      "content": "I cannot clear the conversation history. However, I will remember our past interactions. How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 1772,
+        "completion_tokens": 23,
+        "total_tokens": 1836
+      },
+      "timestamp": "2026-02-04T14:40:14.966088"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "session_id": "trace_20260203_221107",
+  "total_events": 3,
+  "events": [
+    {
+      "event": "session_start",
+      "timestamp": "2026-02-03T22:11:07.731681",
+      "metadata": {
+        "user": "Karan",
+        "project": "C:\\Users\\karan\\Personal_projects\\Terent",
+        "session_id": "9f4dfdd2-2a3e-48b3-ad36-70484b9050b0"
+      },
+      "config": {
+        "model": "gemini-2.5-flash",
+        "provider": "gemini"
+      }
+    },
+    {
+      "event": "user_message",
+      "content": "hello",
+      "timestamp": "2026-02-03T22:13:57.411442"
+    },
+    {
+      "event": "llm_response",
+      "content": "Hello Karan! How can I help you today?",
+      "tool_calls": [],
+      "usage": {
+        "prompt_tokens": 243,
+        "completion_tokens": 10,
+        "total_tokens": 253
+      },
+      "timestamp": "2026-02-03T22:13:59.512076"
+    }
+  ]
+}

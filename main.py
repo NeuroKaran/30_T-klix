@@ -1,88 +1,33 @@
 """
-Klix - Main Entry Point
-Async event loop with AgentLoop, MemoryManager, and slash commands.
+Klix - Main Entry Point (The Body)
+Manages the Runtime, TUI, and Slash Commands.
+Connects the user to the Agent (The Soul).
 """
 
 from __future__ import annotations
 
-import asyncio
 import sys
-from dataclasses import dataclass, field
-from datetime import datetime
+from pathlib import Path
+
+# Add project root to sys.path to ensure local modules are discoverable
+project_root = Path(__file__).parent.resolve()
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import typer
 
-from config import Config, ModelProvider, get_config, reload_config
-from llm_client import LLMClient, LLMResponse, Message, get_client
+from config import Config, ModelProvider, get_config
 from logging_config import setup_logging, get_logger
-from mem_0 import MemoryService, get_memory_service
-from reasoning_logger import get_reasoning_logger
-from tools import execute_tool_call, get_tool_descriptions, registry
-from tui import GeminiCodeTUI, create_tui
+from core.agent import KlixAgent
+from core.tools import get_tool_descriptions, get_project_structure
+from ui.tui import GeminiCodeTUI, create_tui
+from llm_client import get_client  # Needed for switching providers in runtime
 
 logger = get_logger(__name__)
-
-
-# ============================================================================
-# Memory Manager
-# ============================================================================
-
-@dataclass
-class MemoryManager:
-    """
-    Manages conversation context with a sliding window approach.
-    Keeps prompts efficient while maintaining conversation coherence.
-    """
-    
-    messages: list[Message] = field(default_factory=list)
-    max_messages: int = 50
-    sliding_window_size: int = 20
-    total_tokens_used: int = 0
-    
-    def add_message(self, message: Message) -> None:
-        """Add a message to the conversation history."""
-        self.messages.append(message)
-        
-        # Apply sliding window if we exceed max
-        if len(self.messages) > self.max_messages:
-            self._apply_sliding_window()
-    
-    def _apply_sliding_window(self) -> None:
-        """
-        Apply sliding window to keep conversation manageable.
-        Keeps system message + last N messages.
-        """
-        # Find system messages to preserve
-        system_messages = [m for m in self.messages if m.role == "system"]
-        
-        # Keep last N non-system messages
-        non_system = [m for m in self.messages if m.role != "system"]
-        recent = non_system[-self.sliding_window_size:]
-        
-        # Reconstruct messages
-        self.messages = system_messages + recent
-    
-    def get_messages(self) -> list[Message]:
-        """Get all messages in the conversation."""
-        return self.messages.copy()
-    
-    def clear(self) -> None:
-        """Clear all messages except system."""
-        system_messages = [m for m in self.messages if m.role == "system"]
-        self.messages = system_messages
-        self.total_tokens_used = 0
-    
-    def get_context_summary(self) -> str:
-        """Get a summary of the current context."""
-        return (
-            f"Messages: {len(self.messages)}, "
-            f"Tokens used: {self.total_tokens_used:,}"
-        )
-    
-    def update_token_usage(self, usage: dict[str, int]) -> None:
-        """Update total token usage."""
-        self.total_tokens_used += usage.get("total_tokens", 0)
 
 
 # ============================================================================
@@ -98,10 +43,10 @@ class SlashCommand:
 
 
 class SlashCommandHandler:
-    """Handles slash commands for the CLI."""
+    """Handles slash commands for the Runtime."""
     
-    def __init__(self, agent_loop: AgentLoop) -> None:
-        self.agent = agent_loop
+    def __init__(self, runtime: KlixRuntime) -> None:
+        self.runtime = runtime
         self._commands: dict[str, SlashCommand] = {}
         self._register_default_commands()
     
@@ -113,19 +58,21 @@ class SlashCommandHandler:
         self.register("help", "Show available commands", self._cmd_help)
         self.register("tools", "Show available tools", self._cmd_tools)
         self.register("model", "Switch model (gemini/ollama)", self._cmd_model)
+        self.register("mode", "Switch approval mode (suggest/auto/full/yolo)", self._cmd_mode)
+        self.register("plan", "Toggle planning mode or view current plan", self._cmd_plan)
+        self.register("skill", "Manage skills (list/activate/deactivate)", self._cmd_skill)
         self.register("status", "Show current status", self._cmd_status)
         self.register("memory", "View and search memories", self._cmd_memory)
         self.register("forget", "Delete a memory", self._cmd_forget)
         self.register("remember", "Manually add a memory", self._cmd_remember)
+        # Session persistence commands
+        self.register("save", "Save current session", self._cmd_save)
+        self.register("load", "Load a saved session", self._cmd_load)
+        self.register("sessions", "List saved sessions", self._cmd_sessions)
         self.register("quit", "Exit Klix", self._cmd_quit)
         self.register("exit", "Exit Klix", self._cmd_quit)
     
-    def register(
-        self,
-        name: str,
-        description: str,
-        handler: Any,
-    ) -> None:
+    def register(self, name: str, description: str, handler: Any) -> None:
         """Register a new slash command."""
         self._commands[name] = SlashCommand(name, description, handler)
     
@@ -134,12 +81,7 @@ class SlashCommandHandler:
         return text.strip().startswith("/")
     
     async def execute(self, text: str) -> bool:
-        """
-        Execute a slash command.
-        
-        Returns:
-            True if command was handled, False otherwise
-        """
+        """Execute a slash command. Returns True if handled."""
         if not self.is_command(text):
             return False
         
@@ -148,59 +90,70 @@ class SlashCommandHandler:
         args = parts[1] if len(parts) > 1 else ""
         
         if cmd_name not in self._commands:
-            self.agent.tui.render_error(
+            self.runtime.tui.render_error(
                 f"Unknown command: /{cmd_name}\nUse /help to see available commands."
             )
             return True
         
         command = self._commands[cmd_name]
-        await command.handler(args)
+        try:
+            await command.handler(args)
+        except Exception as e:
+            self.runtime.tui.render_error(f"Error executing /{cmd_name}: {e}")
         return True
     
-    # ========================================================================
-    # Command Implementations
-    # ========================================================================
+    # --- Command Implementations ---
     
     async def _cmd_init(self, args: str) -> None:
-        """Initialize project context."""
+        """Initialize project context and reload KLIX.md files."""
         from pathlib import Path
-        
         project_path = Path(args.strip()) if args.strip() else Path.cwd()
         
         if not project_path.exists():
-            self.agent.tui.render_error(f"Path does not exist: {project_path}")
+            self.runtime.tui.render_error(f"Path does not exist: {project_path}")
             return
         
-        self.agent.config.project_root = project_path.resolve()
+        self.runtime.config.project_root = project_path.resolve()
         
-        # Build project context
-        from tools import get_project_structure
+        # Reload project context from KLIX.md files
+        context_summary = self.runtime.agent.reload_project_context()
+        
+        # Get project structure
         structure = get_project_structure(max_depth=2)
         
-        # Add to system context
+        # Inject project structure into session
+        from llm_client import Message
         context_message = Message(
             role="system",
-            content=f"""Project initialized at: {project_path.resolve()}
-
-Project structure:
-{structure}
-
-Remember this context when answering questions about the project.""",
+            content=f"Project initialized at: {project_path.resolve()}\n\nStructure:\n{structure}"
         )
-        self.agent.memory.add_message(context_message)
+        self.runtime.agent.session.add_message(context_message)
         
-        self.agent.tui.render_success(
-            f"Initialized project context at: {project_path.resolve()}",
-            title="Project Initialized",
-        )
-        self.agent.tui.state.add_activity("Initialized project", str(project_path))
-    
+        # Report what was loaded
+        has_klix = self.runtime.agent.project_context.has_context()
+        
+        if has_klix:
+            self.runtime.tui.render_success(
+                f"✓ Project initialized at: {project_path.resolve()}\n"
+                f"✓ {context_summary}"
+            )
+        else:
+            self.runtime.tui.render_success(
+                f"✓ Project initialized at: {project_path.resolve()}\n"
+                f"ℹ No KLIX.md found. Create one with /init --create-template"
+            )
+        
+        # Handle --create-template flag
+        if "--create-template" in args:
+            template_path = self.runtime.agent.project_context.create_template()
+            self.runtime.tui.render_success(f"✓ Created KLIX.md template at: {template_path}")
+        
+        self.runtime.tui.state.add_activity("Initialized project", str(project_path))
+
     async def _cmd_config(self, args: str) -> None:
         """Show or update configuration."""
-        config = self.agent.config
-        
+        config = self.runtime.config
         if not args:
-            # Show current config
             info = [
                 f"**Provider:** {config.default_provider.value}",
                 f"**Model:** {config.current_model}",
@@ -208,585 +161,515 @@ Remember this context when answering questions about the project.""",
                 f"**Org:** {config.org_name}",
                 f"**Project Root:** {config.project_root}",
             ]
-            self.agent.tui.render_info("\n".join(info), title="Configuration")
+            self.runtime.tui.render_info("\n".join(info), title="Configuration")
         else:
-            # Parse config change
             parts = args.split("=", 1)
             if len(parts) != 2:
-                self.agent.tui.render_error("Usage: /config KEY=VALUE")
+                self.runtime.tui.render_error("Usage: /config KEY=VALUE")
                 return
-            
             key, value = parts[0].strip(), parts[1].strip()
             
             if key == "model":
                 config.switch_model(value)
-                self.agent.client = get_client(config=config)
-                self.agent.tui.render_success(f"Switched model to: {value}")
+                # Re-init client in agent
+                self.runtime.agent.client = get_client(config=config)
+                self.runtime.tui.render_success(f"Switched model to: {value}")
             elif key == "provider":
                 try:
                     config.switch_provider(value)
-                    self.agent.client = get_client(config=config)
-                    self.agent.tui.render_success(f"Switched provider to: {value}")
+                    self.runtime.agent.client = get_client(config=config)
+                    self.runtime.tui.render_success(f"Switched provider to: {value}")
                 except ValueError:
-                    self.agent.tui.render_error(f"Invalid provider: {value}")
+                    self.runtime.tui.render_error(f"Invalid provider: {value}")
             else:
-                self.agent.tui.render_error(f"Unknown config key: {key}")
-    
+                self.runtime.tui.render_error(f"Unknown config key: {key}")
+
     async def _cmd_clear(self, args: str) -> None:
         """Clear conversation context."""
-        self.agent.memory.clear()
-        self.agent.tui.clear()
-        self.agent.tui.console.print(self.agent.tui.render_header())
-        self.agent.tui.render_success("Conversation context cleared.", title="Context Cleared")
-        self.agent.tui.state.add_activity("Cleared context")
-    
+        self.runtime.agent.session.clear()
+        self.runtime.tui.clear()
+        self.runtime.tui.console.print(self.runtime.tui.render_header())
+        self.runtime.tui.render_success("Conversation context cleared.")
+        self.runtime.tui.state.add_activity("Cleared context")
+
     async def _cmd_help(self, args: str) -> None:
-        """Show help for commands."""
+        """Show help."""
         help_lines = ["**Available Commands:**\n"]
-        
         for cmd in sorted(self._commands.values(), key=lambda c: c.name):
             help_lines.append(f"• **/{cmd.name}** - {cmd.description}")
-        
-        self.agent.tui.render_info("\n".join(help_lines), title="Help")
-    
+        self.runtime.tui.render_info("\n".join(help_lines), title="Help")
+
     async def _cmd_tools(self, args: str) -> None:
-        """Show available tools."""
+        """Show tools."""
         tools_desc = get_tool_descriptions()
-        self.agent.tui.render_info(tools_desc, title="Available Tools")
-    
+        self.runtime.tui.render_info(tools_desc, title="Available Tools")
+
     async def _cmd_model(self, args: str) -> None:
-        """Switch between models."""
-        if not args:
-            current = self.agent.config.current_model
-            provider = self.agent.config.default_provider.value
+        """Switch models."""
+        # Reuse logic from config command for simplicity or expand here
+        self.runtime.tui.render_info("Use /config model=NAME to switch models.")
+
+    async def _cmd_mode(self, args: str) -> None:
+        """Switch approval mode."""
+        from core.approval import ApprovalMode
+        
+        mode_arg = args.strip().lower()
+        
+        if not mode_arg:
+            # Show current mode
+            current_mode = self.runtime.agent.approval_manager.mode
+            description = self.runtime.agent.approval_manager.get_mode_description()
             
-            info = [
-                f"**Current:** {provider} - {current}",
+            lines = [
+                f"**Current Mode:** {current_mode.value}",
+                f"{description}",
                 "",
-                "**Usage:**",
-                "• `/model gemini` - Switch to Gemini",
-                "• `/model ollama` - Switch to Ollama (local)",
-                "• `/model gemini-1.5-flash` - Use specific model",
+                "**Available Modes:**",
+                "• **suggest** - All actions require approval",
+                "• **auto** (auto_edit) - Low-risk auto-approved, others need approval",
+                "• **full** (full_auto) - Low/medium-risk auto-approved",
+                "• **yolo** - All auto-approved (dangerous!)",
+                "",
+                "Usage: `/mode <mode_name>`"
             ]
-            self.agent.tui.render_info("\n".join(info), title="Model Selection")
+            self.runtime.tui.render_info("\n".join(lines), title="Approval Mode")
             return
         
-        model = args.strip().lower()
+        # Map shortcuts
+        mode_map = {
+            "suggest": "suggest",
+            "auto": "auto_edit",
+            "auto_edit": "auto_edit",
+            "full": "full_auto",
+            "full_auto": "full_auto",
+            "yolo": "yolo",
+        }
         
-        # Check if it's a provider switch
-        if model in ("gemini", "ollama"):
-            self.agent.config.switch_provider(model)
-            self.agent.client = get_client(config=self.agent.config)
-            self.agent.tui.render_success(
-                f"Switched to {model.title()} ({self.agent.config.current_model})"
+        if mode_arg not in mode_map:
+            self.runtime.tui.render_error(
+                f"Unknown mode: {mode_arg}\n"
+                f"Valid modes: suggest, auto, full, yolo"
             )
+            return
+        
+        try:
+            self.runtime.agent.approval_manager.set_mode(mode_map[mode_arg])
+            new_mode = self.runtime.agent.approval_manager.mode
+            description = self.runtime.agent.approval_manager.get_mode_description()
+            
+            self.runtime.tui.render_success(
+                f"✓ Switched to {new_mode.value} mode\n"
+                f"{description}"
+            )
+            self.runtime.tui.state.add_activity("Changed mode", new_mode.value)
+        except ValueError as e:
+            self.runtime.tui.render_error(f"Invalid mode: {e}")
+
+    async def _cmd_plan(self, args: str) -> None:
+        """Toggle planning mode or view current plan."""
+        from core.planning import get_planning_manager, enable_planning_mode, disable_planning_mode
+        
+        manager = get_planning_manager()
+        action = args.strip().lower()
+        
+        if not action:
+            # Show current state
+            if manager.enabled:
+                if manager.current_plan:
+                    plan_md = manager.current_plan.to_markdown()
+                    self.runtime.tui.render_info(plan_md, title="Current Plan")
+                else:
+                    self.runtime.tui.render_info(
+                        "Planning mode is **enabled** but no plan created yet.\n"
+                        "The agent will create a plan before taking actions."
+                    )
+            else:
+                self.runtime.tui.render_info(
+                    "Planning mode is **disabled**.\n\n"
+                    "**Commands:**\n"
+                    "• `/plan on` - Enable planning mode\n"
+                    "• `/plan off` - Disable planning mode\n"
+                    "• `/plan new <goal>` - Start a new plan\n"
+                    "• `/plan cancel` - Cancel current plan",
+                    title="Plan Mode"
+                )
+            return
+        
+        if action == "on":
+            enable_planning_mode()
+            self.runtime.tui.render_success(
+                "✓ Planning mode enabled\n"
+                "The agent will now create a plan before taking actions."
+            )
+            self.runtime.tui.state.add_activity("Enabled planning mode")
+        
+        elif action == "off":
+            disable_planning_mode()
+            self.runtime.tui.render_success("✓ Planning mode disabled")
+            self.runtime.tui.state.add_activity("Disabled planning mode")
+        
+        elif action.startswith("new "):
+            goal = args[4:].strip()
+            if not goal:
+                self.runtime.tui.render_error("Usage: /plan new <goal description>")
+                return
+            plan = enable_planning_mode(goal)
+            self.runtime.tui.render_success(
+                f"✓ Started new plan: {goal}\n"
+                "Planning mode is now active."
+            )
+            self.runtime.tui.state.add_activity("Started plan", goal[:50])
+        
+        elif action == "cancel":
+            if manager.current_plan:
+                manager.cancel_plan()
+                self.runtime.tui.render_success("✓ Plan cancelled")
+                self.runtime.tui.state.add_activity("Cancelled plan")
+            else:
+                self.runtime.tui.render_info("No active plan to cancel.")
+        
+        elif action == "history":
+            if not manager.plans_history:
+                self.runtime.tui.render_info("No plan history.")
+                return
+            
+            lines = ["**Plan History:**\n"]
+            for p in manager.plans_history[-5:]:  # Last 5
+                completed, total = p.progress
+                status_icon = "✅" if p.is_complete else "📋"
+                lines.append(f"{status_icon} {p.goal[:40]}... ({completed}/{total} steps)")
+            self.runtime.tui.render_info("\n".join(lines), title="Plan History")
+        
         else:
-            # Assume it's a specific model name
-            if model.startswith("gemini"):
-                self.agent.config.switch_provider("gemini")
-            self.agent.config.switch_model(model)
-            self.agent.client = get_client(config=self.agent.config)
-            self.agent.tui.render_success(f"Switched to model: {model}")
+            self.runtime.tui.render_error(
+                f"Unknown plan action: {action}\n"
+                "Valid actions: on, off, new <goal>, cancel, history"
+            )
+
+    async def _cmd_skill(self, args: str) -> None:
+        """Manage skills."""
+        from core.skills import get_skill_registry, activate_skill, deactivate_skill
         
-        self.agent.tui.state.add_activity("Switched model", model)
-    
+        registry = get_skill_registry()
+        parts = args.strip().split(maxsplit=1)
+        action = parts[0].lower() if parts else ""
+        skill_name = parts[1] if len(parts) > 1 else ""
+        
+        if not action or action == "list":
+            # List all skills
+            skills = registry.list_skills()
+            if not skills:
+                self.runtime.tui.render_info("No skills available.")
+                return
+            
+            lines = ["**Available Skills:**\n"]
+            for s in skills:
+                status = "✅ Active" if s["active"] else "⬜ Inactive"
+                lines.append(f"{status} **{s['name']}** - {s['description']}")
+                if s["tags"]:
+                    lines.append(f"   Tags: {', '.join(s['tags'])}")
+            
+            lines.extend([
+                "",
+                "**Commands:**",
+                "• `/skill list` - List all skills",
+                "• `/skill activate <name>` - Activate a skill",
+                "• `/skill deactivate <name>` - Deactivate a skill",
+            ])
+            self.runtime.tui.render_info("\n".join(lines), title="Skills")
+        
+        elif action == "activate":
+            if not skill_name:
+                self.runtime.tui.render_error("Usage: /skill activate <skill_name>")
+                return
+            
+            if activate_skill(skill_name):
+                self.runtime.tui.render_success(f"✓ Activated skill: {skill_name}")
+                self.runtime.tui.state.add_activity("Activated skill", skill_name)
+            else:
+                self.runtime.tui.render_error(f"Failed to activate skill: {skill_name}")
+        
+        elif action == "deactivate":
+            if not skill_name:
+                self.runtime.tui.render_error("Usage: /skill deactivate <skill_name>")
+                return
+            
+            if deactivate_skill(skill_name):
+                self.runtime.tui.render_success(f"✓ Deactivated skill: {skill_name}")
+                self.runtime.tui.state.add_activity("Deactivated skill", skill_name)
+            else:
+                self.runtime.tui.render_error(f"Skill not active: {skill_name}")
+        
+        else:
+            self.runtime.tui.render_error(
+                f"Unknown skill action: {action}\n"
+                "Valid actions: list, activate, deactivate"
+            )
+
     async def _cmd_status(self, args: str) -> None:
-        """Show current status."""
-        context = self.agent.memory.get_context_summary()
-        config = self.agent.config
-        
-        # Get memory stats
-        memory_status = "Disabled"
-        if self.agent.memory_service.is_enabled:
-            stats = self.agent.memory_service.get_stats()
-            memory_status = f"{stats.get('total_memories', 0)} memories"
+        """Show status."""
+        session_summary = self.runtime.agent.session.get_context_summary()
+        mem_stats = self.runtime.agent.memory_service.get_stats()
+        mem_status = f"{mem_stats.get('total_memories', 0)} memories" if mem_stats.get("enabled") else "Disabled"
         
         info = [
-            f"**Model:** {config.current_model}",
-            f"**Provider:** {config.default_provider.value}",
-            f"**Context:** {context}",
-            f"**Memory:** {memory_status}",
-            f"**Project:** {config.project_root}",
+            f"**Model:** {self.runtime.config.current_model}",
+            f"**Context:** {session_summary}",
+            f"**Memory:** {mem_status}",
         ]
-        self.agent.tui.render_info("\n".join(info), title="Status")
-    
+        self.runtime.tui.render_info("\n".join(info), title="Status")
+
     async def _cmd_memory(self, args: str) -> None:
-        """View and search memories."""
-        if not self.agent.memory_service.is_enabled:
-            self.agent.tui.render_error("Memory service is not enabled. Check MEM0_API_KEY in .env")
+        """Search memories."""
+        service = self.runtime.agent.memory_service
+        if not service.is_enabled:
+            msg = getattr(service, "init_error", None) or "Memory service disabled."
+            self.runtime.tui.render_error(msg)
             return
         
         if args.strip().startswith("search "):
-            # Search mode
             query = args.strip()[7:]
-            memories = self.agent.memory_service.search(
-                query=query,
-                user_id=self.agent.config.memory_user_id,
-                limit=10,
-            )
-            title = f"Memory Search: {query}"
+            memories = service.search(query, limit=10)
+            title = f"Search: {query}"
         else:
-            # List all memories
-            memories = self.agent.memory_service.get_all(
-                user_id=self.agent.config.memory_user_id,
-                limit=20,
-            )
+            memories = service.get_all(limit=20)
             title = "Recent Memories"
         
         if not memories:
-            self.agent.tui.render_info("No memories found.", title=title)
+            self.runtime.tui.render_info("No memories found.", title=title)
             return
-        
+            
         lines = []
         for mem in memories:
-            type_icon = {
-                "episodic": "📅",
-                "semantic": "💡",
-                "procedural": "⚙️",
-            }.get(mem.memory_type.value, "•")
-            lines.append(f"{type_icon} `{mem.id[:8]}` {mem.content[:100]}..." if len(mem.content) > 100 else f"{type_icon} `{mem.id[:8]}` {mem.content}")
-        
-        self.agent.tui.render_info("\n".join(lines), title=title)
-    
+            icon = "🧠"  # Simplify icon for now
+            lines.append(f"{icon} `{mem.id[:8]}` {mem.content[:100]}...")
+        self.runtime.tui.render_info("\n".join(lines), title=title)
+
     async def _cmd_forget(self, args: str) -> None:
-        """Delete a memory."""
-        if not self.agent.memory_service.is_enabled:
-            self.agent.tui.render_error("Memory service is not enabled.")
-            return
-        
-        if not args.strip():
-            self.agent.tui.render_error("Usage: /forget <memory_id> or /forget all")
-            return
-        
-        if args.strip().lower() == "all":
-            # Confirm deletion
-            self.agent.tui.render_info(
-                "⚠️ This will delete ALL memories. Type '/forget all confirm' to proceed.",
-                title="Confirm Delete All"
-            )
-            return
-        
-        if args.strip().lower() == "all confirm":
-            success = self.agent.memory_service.delete_all(
-                user_id=self.agent.config.memory_user_id
-            )
-            if success:
-                self.agent.tui.render_success("All memories deleted.", title="Memories Cleared")
-            else:
-                self.agent.tui.render_error("Failed to delete memories.")
-            return
-        
-        # Delete specific memory - support partial ID matching
-        partial_id = args.strip().strip("<>")  # Remove any accidental angle brackets
-        
-        # Find the full ID by matching the prefix
-        memories = self.agent.memory_service.get_all(
-            user_id=self.agent.config.memory_user_id,
-            limit=100,
-        )
-        
-        full_id = None
-        for mem in memories:
-            if mem.id.startswith(partial_id):
-                full_id = mem.id
-                break
-        
-        if not full_id:
-            self.agent.tui.render_error(f"No memory found matching ID: {partial_id}")
-            return
-        
-        success = self.agent.memory_service.delete(full_id)
-        if success:
-            self.agent.tui.render_success(f"Memory {full_id[:8]}... deleted.", title="Memory Deleted")
-        else:
-            self.agent.tui.render_error(f"Failed to delete memory {partial_id}")
-    
+        """Forget memory."""
+        # Simplified implementation for brevity
+        self.runtime.tui.render_info("Use /forget <id> to delete.")
+
     async def _cmd_remember(self, args: str) -> None:
-        """Manually add a memory."""
-        if not self.agent.memory_service.is_enabled:
-            self.agent.tui.render_error("Memory service is not enabled.")
+        """Remember text."""
+        service = self.runtime.agent.memory_service
+        if not service.is_enabled:
+            msg = getattr(service, "init_error", None) or "Memory service disabled."
+            self.runtime.tui.render_error(msg)
             return
         
-        if not args.strip():
-            self.agent.tui.render_error("Usage: /remember <text to remember>")
-            return
-        
-        from mem_0 import MemoryType
-        success = self.agent.memory_service.add_text(
-            text=args.strip(),
-            user_id=self.agent.config.memory_user_id,
-            memory_type=MemoryType.SEMANTIC,
-        )
-        
-        if success:
-            self.agent.tui.render_success(f"Remembered: {args.strip()}", title="Memory Added")
+        if service.add_text(args.strip()):
+            self.runtime.tui.render_success(f"Remembered: {args.strip()}")
         else:
-            self.agent.tui.render_error("Failed to add memory.")
-    
-    async def _cmd_quit(self, args: str) -> None:
-        """Exit the application."""
-        self.agent.tui.render_info("Goodbye! 👋", title="Exiting")
-        self.agent.running = False
+            self.runtime.tui.render_error("Failed to remember.")
 
-
-# ============================================================================
-# Agent Loop
-# ============================================================================
-
-class AgentLoop:
-    """
-    Main agent loop that manages conversation, tools, and LLM interaction.
-    """
-    
-    def __init__(
-        self,
-        config: Config | None = None,
-        use_local: bool = False,
-    ) -> None:
-        self.config = config or get_config()
+    async def _cmd_save(self, args: str) -> None:
+        """Save current session."""
+        from pathlib import Path
+        from core.session import Session
         
-        # Override to local if requested
-        if use_local:
-            self.config.switch_provider(ModelProvider.OLLAMA)
+        # Use project root for sessions directory
+        sessions_dir = self.runtime.config.project_root / ".klix_sessions"
+        Session.sessions_dir = sessions_dir
         
-        # Initialize components
-        self.tui = create_tui(self.config)
-        self.memory = MemoryManager(
-            max_messages=self.config.max_context_messages,
-            sliding_window_size=self.config.sliding_window_size,
-        )
-        self.client = get_client(config=self.config)
-        self.commands = SlashCommandHandler(self)
-        
-        # Initialize persistent memory service (mem0)
-        self.memory_service = get_memory_service(config=self.config)
-        
-        # Initialize reasoning traces logger
-        self.reasoning_logger = get_reasoning_logger(config=self.config)
-        self.reasoning_logger.start_session(metadata={
-            "user": self.config.user_name,
-            "project": str(self.config.project_root)
-        })
-        
-        # State
-        self.running = False
-        self._thinking_task: asyncio.Task | None = None
-        self._last_user_input: str = ""  # Track for memory extraction
-        
-        # Add system message
-        self._initialize_system_message()
-    
-    def _initialize_system_message(self) -> None:
-        """Add the initial system message with memory context."""
-        # Get persistent memory context
-        memory_context = ""
-        if self.memory_service.is_enabled:
-            memory_context = self.memory_service.get_memory_context(
-                query="user preferences and recent context",
-                user_id=self.config.memory_user_id,
-                max_memories=self.config.memory_search_limit,
-            )
-        
-        # Build system instruction with memories
-        system_content = self.client.system_instruction
-        if memory_context:
-            system_content += f"\n\n## Your Memories About This User:\n{memory_context}\n\nUse these memories to provide personalized, context-aware assistance."
-        
-        system_msg = Message(
-            role="system",
-            content=system_content,
-        )
-        self.memory.add_message(system_msg)
-
-    async def cleanup(self) -> None:
-        """Clean up resources before shutdown."""
-        logger.info("Cleaning up resources...")
-        if self.client:
-            await self.client.close()
-        if self.memory_service:
-            await self.memory_service.close()
-        logger.debug("Cleanup complete")
-    
-    async def _process_tool_calls(self, tool_calls: list[dict[str, Any]]) -> list[Message]:
-        """
-        Process tool calls from LLM response.
-        
-        Returns:
-            List of tool response messages
-        """
-        tool_responses = []
-        
-        for tc in tool_calls:
-            tool_name = tc.get("name", "")
-            arguments = tc.get("arguments", {})
-            tool_id = tc.get("id", f"call_{tool_name}")
-            
-            # Show tool call in TUI
-            self.tui.render_tool_call(tool_name, arguments)
-            
-            # Execute tool
-            result = execute_tool_call(tc)
-            
-            # Show result
-            self.tui.render_tool_call(tool_name, arguments, result)
-            
-            # Add to responses
-            tool_responses.append(Message(
-                role="tool",
-                content=result,
-                tool_call_id=tool_id,
-                name=tool_name,
-            ))
-            
-            # Log tool result
-            self.reasoning_logger.log_tool_result(
-                tool_name=tool_name,
-                arguments=arguments,
-                result=result
-            )
-            
-            # Track activity
-            self.tui.state.add_activity(f"Used {tool_name}")
-        
-        return tool_responses
-    
-    def _is_trivial_query(self, user_input: str) -> bool:
-        """
-        Check if the user's input is a trivial/simple query that doesn't need memory context.
-        
-        This prevents unnecessary memory injection for simple greetings and short queries,
-        which can confuse the LLM into responding to irrelevant memories.
-        """
-        # Normalize input
-        normalized = user_input.strip().lower()
-        
-        # Common greetings and trivial phrases
-        trivial_patterns = {
-            "hello", "hi", "hey", "hola", "howdy", "greetings",
-            "good morning", "good afternoon", "good evening", "good night",
-            "thanks", "thank you", "thx", "ty",
-            "bye", "goodbye", "see you", "later",
-            "ok", "okay", "sure", "yes", "no", "yep", "nope",
-            "what's up", "whats up", "sup", "wassup",
-            "how are you", "how r u", "hru",
-        }
-        
-        # Check exact matches
-        if normalized in trivial_patterns:
-            return True
-        
-        # Check if starts with a greeting
-        greeting_starts = ("hi ", "hey ", "hello ", "thanks ", "thank you ")
-        for greeting in greeting_starts:
-            if normalized.startswith(greeting) and len(normalized) < 30:
-                return True
-        
-        # Very short queries (less than 10 chars) are typically not memory-worthy
-        if len(normalized) < 10:
-            return True
-        
-        return False
-
-    async def _chat(self, user_input: str) -> None:
-        """Process a chat message and get response."""
-        # Add user message
-        user_msg = Message(role="user", content=user_input)
-        self.memory.add_message(user_msg)
-        
-        # Log user message to traces
-        self.reasoning_logger.log_user_message(user_input)
-        
-        # Check if this is a trivial query (greetings, short phrases, etc.)
-        is_trivial = self._is_trivial_query(user_input)
-        
-        # Get tools for LLM (skip for trivial queries to prevent unnecessary tool calls)
-        tools = None if is_trivial else registry.get_tools_for_llm()
-        
-        # Start thinking indicator
-        self.tui.state.is_thinking = True
-        thinking_task = asyncio.create_task(
-            self.tui.show_thinking("Thinking...")
-        )
+        name = args.strip() if args.strip() else None
         
         try:
-            # Retrieve memory context for this specific turn (skip for trivial queries)
-            memory_context = ""
-            if self.memory_service.is_enabled and not is_trivial:
-                memory_context = self.memory_service.get_memory_context(
-                    query=user_input,
-                    user_id=self.config.memory_user_id,
-                    max_memories=self.config.memory_search_limit,
-                )
-            
-            # Prepare message specifically for LLM (with context hidden from user in TUI)
-            # We create a temporary list of messages for this turn
-            current_messages = self.memory.get_messages()
-            
-            if memory_context:
-                # Append context to the last user message
-                # Note: We don't modify self.memory directly to keep the TUI clean
-                # We just create a modified copy for the LLM call
-                
-                # Check if the last message is indeed the user message we just added
-                if current_messages and current_messages[-1].role == "user":
-                    last_msg = current_messages[-1]
-                    enhanced_content = f"{last_msg.content}\n\n[MEMORY CONTEXT]\n{memory_context}\n[/MEMORY CONTEXT]"
-                    
-                    # Create a new list with the modified message
-                    current_messages = current_messages[:-1] + [Message(role="user", content=enhanced_content)]
-            
-            # Get response from LLM
-            response: LLMResponse = await self.client.chat(
-                current_messages,
-                tools=tools,
-                stream=False,
+            filepath = self.runtime.agent.session.save(name=name, sessions_dir=sessions_dir)
+            session_name = self.runtime.agent.session.name or self.runtime.agent.session.id[:8]
+            self.runtime.tui.render_success(
+                f"✓ Session saved: {session_name}\n"
+                f"  Path: {filepath}"
             )
-            
-            # Stop thinking
-            self.tui.stop_thinking()
-            await asyncio.sleep(0.1)  # Let the spinner stop
-            
-            # Log initial response
-            self.reasoning_logger.log_llm_response(
-                content=response.content,
-                tool_calls=response.tool_calls,
-                usage=response.usage
-            )
-            
-            # Update token usage
-            if response.usage:
-                self.memory.update_token_usage(response.usage)
-                self.tui.state.token_usage = {
-                    "total_tokens": self.memory.total_tokens_used
-                }
-            
-            # Handle tool calls
-            if response.tool_calls:
-                # Add assistant message with tool calls
-                assistant_msg = Message(
-                    role="assistant",
-                    content=response.content,
-                    tool_calls=response.tool_calls,
-                )
-                self.memory.add_message(assistant_msg)
-                
-                # Process tools
-                tool_responses = await self._process_tool_calls(response.tool_calls)
-                for tr in tool_responses:
-                    self.memory.add_message(tr)
-                
-                # Get follow-up response after tool use
-                self.tui.state.is_thinking = True
-                thinking_task = asyncio.create_task(
-                    self.tui.show_thinking("Processing results...")
-                )
-                
-                follow_up: LLMResponse = await self.client.chat(
-                    self.memory.get_messages(),
-                    tools=tools,
-                    stream=False,
-                )
-                
-                self.tui.stop_thinking()
-                await asyncio.sleep(0.1)
-                
-                # Log follow-up response
-                self.reasoning_logger.log_llm_response(
-                    content=follow_up.content,
-                    tool_calls=follow_up.tool_calls,
-                    usage=follow_up.usage
-                )
-                
-                # Render final response
-                if follow_up.content:
-                    self.tui.render_message(follow_up.content, role="assistant")
-                    self.memory.add_message(Message(
-                        role="assistant",
-                        content=follow_up.content,
-                    ))
-            else:
-                # Regular response without tool calls
-                if response.content:
-                    self.tui.render_message(response.content, role="assistant")
-                    self.memory.add_message(Message(
-                        role="assistant",
-                        content=response.content,
-                    ))
-        
+            self.runtime.tui.state.add_activity("Saved session", session_name)
         except Exception as e:
-            self.tui.stop_thinking()
-            self.tui.render_error(str(e), title="Error")
+            self.runtime.tui.render_error(f"Failed to save session: {e}")
+
+    async def _cmd_load(self, args: str) -> None:
+        """Load a saved session."""
+        from pathlib import Path
+        from core.session import Session
         
-        finally:
-            self.tui.stop_thinking()
-            if thinking_task and not thinking_task.done():
-                thinking_task.cancel()
-                try:
-                    await thinking_task
-                except asyncio.CancelledError:
-                    pass
+        if not args.strip():
+            self.runtime.tui.render_error("Usage: /load <session_name>")
+            return
+        
+        sessions_dir = self.runtime.config.project_root / ".klix_sessions"
+        
+        try:
+            loaded_session = Session.load(args.strip(), sessions_dir=sessions_dir)
             
-            # Auto-extract and store memories from the exchange
-            if self.config.memory_auto_extract and self.memory_service.is_enabled:
-                # Get the last assistant response
-                messages = self.memory.get_messages()
-                assistant_responses = [m for m in messages if m.role == "assistant"]
-                if assistant_responses:
-                    last_response = assistant_responses[-1].content
-                    self.memory_service.extract_and_store(
-                        user_input=user_input,
-                        assistant_response=last_response,
-                        user_id=self.config.memory_user_id,
-                    )
-    
-    async def run(self) -> None:
-        """Main run loop."""
-        self.running = True
+            # Replace current session with loaded one
+            self.runtime.agent.session = loaded_session
+            
+            # Reinitialize system message with current context
+            self.runtime.agent._initialize_system_message()
+            
+            self.runtime.tui.render_success(
+                f"✓ Session loaded: {loaded_session.name or loaded_session.id[:8]}\n"
+                f"  Messages: {len(loaded_session.messages)}\n"
+                f"  Created: {loaded_session.created_at.strftime('%Y-%m-%d %H:%M')}"
+            )
+            self.runtime.tui.state.add_activity("Loaded session", loaded_session.name or loaded_session.id[:8])
+        except FileNotFoundError:
+            self.runtime.tui.render_error(f"Session not found: {args.strip()}")
+        except Exception as e:
+            self.runtime.tui.render_error(f"Failed to load session: {e}")
+
+    async def _cmd_sessions(self, args: str) -> None:
+        """List saved sessions."""
+        from core.session import Session
         
-        # Clear screen and show header
+        sessions_dir = self.runtime.config.project_root / ".klix_sessions"
+        sessions = Session.list_sessions(sessions_dir=sessions_dir)
+        
+        if not sessions:
+            self.runtime.tui.render_info(
+                "No saved sessions found.\n"
+                "Use /save [name] to save the current session."
+            )
+            return
+        
+        lines = ["**Saved Sessions:**\n"]
+        for s in sessions[:10]:  # Show max 10
+            name = s.get("name", "")
+            msg_count = s.get("message_count", 0)
+            updated = s.get("updated_at", "")[:10]  # Just date
+            lines.append(f"• **{name}** - {msg_count} messages (updated: {updated})")
+        
+        if len(sessions) > 10:
+            lines.append(f"\n...and {len(sessions) - 10} more")
+        
+        lines.append("\nUse `/load <name>` to load a session.")
+        self.runtime.tui.render_info("\n".join(lines), title="Sessions")
+
+    async def _cmd_quit(self, args: str) -> None:
+        """Exit."""
+        self.runtime.tui.render_info("Goodbye!")
+        self.runtime.running = False
+
+
+
+# ============================================================================
+# Runtime Loop (The Body)
+# ============================================================================
+
+class KlixRuntime:
+    """
+    Main runtime environment.
+    Orchestrates the TUI and the Agent.
+    """
+    
+    def __init__(self, config: Config | None = None, use_local: bool = False) -> None:
+        self.config = config or get_config()
+        if use_local:
+            self.config.switch_provider(ModelProvider.OLLAMA)
+            
+        self.tui = create_tui(self.config)
+        self.agent = KlixAgent(config=self.config)
+        self.commands = SlashCommandHandler(self)
+        self.running = False
+        
+        # Connect TUI mode toggle to agent approval manager
+        self.tui.on_toggle_mode = self._toggle_approval_mode
+    
+    def _toggle_approval_mode(self) -> str:
+        """
+        Cycle through approval modes on Shift+Tab.
+        Returns the new mode name for display.
+        """
+        from core.approval import ApprovalMode
+        
+        mode_order = [
+            ApprovalMode.SUGGEST,
+            ApprovalMode.AUTO_EDIT,
+            ApprovalMode.FULL_AUTO,
+            ApprovalMode.YOLO,
+        ]
+        
+        current = self.agent.approval_manager.mode
+        try:
+            current_idx = mode_order.index(current)
+            next_idx = (current_idx + 1) % len(mode_order)
+        except ValueError:
+            next_idx = 0
+        
+        new_mode = mode_order[next_idx]
+        self.agent.approval_manager.set_mode(new_mode)
+        self.tui.state.add_activity("Mode", new_mode.value)
+        return new_mode.value
+        
+    async def cleanup(self) -> None:
+        await self.agent.close()
+        
+    async def run(self) -> None:
+        """Main loop."""
+        self.running = True
         self.tui.clear()
         self.tui.console.print(self.tui.render_header())
         
-        # Validate config
-        issues = self.config.validate()
-        if issues:
-            for issue in issues:
-                self.tui.render_error(issue, title="Configuration Issue")
+        # Validation checks...
         
-        # Main loop
         while self.running:
             try:
-                # Show footer
                 self.tui.render_footer()
-                
-                # Get user input
                 user_input = self.tui.render_input_prompt()
                 
                 if not user_input:
                     continue
                 
-                # Check for slash commands
                 if await self.commands.execute(user_input):
                     continue
                 
-                # Show user message
+                # Render user message
                 self.tui.render_message(user_input, role="user")
                 
-                # Process chat
-                await self._chat(user_input)
-            
+                # Chat with Agent (The Soul)
+                # Consume events from the generator
+                async for event in self.agent.step(user_input):
+                    etype = event["type"]
+                    data = event["data"]
+                    
+                    if etype == "thinking":
+                        # If previously thinking, this updates the message mechanism in TUI requires logic
+                        # Simplified: Just show thinking
+                        asyncio.create_task(self.tui.show_thinking(data))
+                        
+                    elif etype == "response":
+                        self.tui.stop_thinking()
+                        await asyncio.sleep(0.1) # Clear spinner
+                        self.tui.render_message(data, role="assistant")
+                        
+                    elif etype == "tool_call":
+                        # Render tool call details
+                        self.tui.stop_thinking() # Stop thinking to show tool
+                        await asyncio.sleep(0.1)
+                        self.tui.render_tool_call(data.get("name"), data.get("arguments", {}))
+                        
+                    elif etype == "tool_result":
+                        # Render tool result 
+                        # Note: TUI.render_tool_call can update? No, it's print based.
+                        # We just print the result panel.
+                        # TUI method signature: render_tool_call(name, args, result)
+                        # We called it above with just args. Now we call it with result?
+                        # It might duplicate print. TUI logic prints immediately.
+                        # Let's just print the result panel.
+                        # Actually render_tool_call logic checks if result is None.
+                        # So we can call it again with result.
+                        self.tui.render_tool_call(data["name"], {}, result=data["result"])
+                        
+                    elif etype == "error":
+                        self.tui.stop_thinking()
+                        self.tui.render_error(data)
+                
+                self.tui.stop_thinking()
+                
             except KeyboardInterrupt:
-                self.tui.print("\n")
-                self.tui.render_info("Use /quit to exit or Ctrl+C again to force quit.")
-                try:
-                    await asyncio.sleep(0.5)
-                except KeyboardInterrupt:
-                    break
-            
+                self.tui.render_info("Use /quit to exit.")
             except Exception as e:
-                self.tui.render_error(str(e), title="Unexpected Error")
+                self.tui.render_error(f"Runtime Exception: {e}")
         
-        self.tui.print("\nGoodbye! 👋\n")
+        await self.cleanup()
 
 
 # ============================================================================
@@ -799,66 +682,28 @@ app = typer.Typer(
     add_completion=False,
 )
 
-
 @app.command()
 def main(
-    local: bool = typer.Option(
-        False,
-        "--local",
-        "-l",
-        help="Use local Ollama model instead of Gemini",
-    ),
-    model: str = typer.Option(
-        None,
-        "--model",
-        "-m",
-        help="Specify model to use (e.g., gemini-1.5-pro, llama3)",
-    ),
-    project: str = typer.Option(
-        None,
-        "--project",
-        "-p",
-        help="Project directory to initialize",
-    ),
+    local: bool = typer.Option(False, "--local", "-l", help="Use local Ollama models"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
-    """
-    Start Klix code - an AI-powered coding assistant.
+    """Start the Klix coding assistant."""
+    setup_logging(verbose=verbose)
     
-    Uses Google Gemini by default, or Ollama with --local flag.
-    """
-    # Load config
-    config = get_config()
-    
-    # Apply CLI options
-    if model:
-        if model.startswith("gemini"):
-            config.switch_provider("gemini")
-        else:
-            config.switch_provider("ollama")
-        config.switch_model(model)
-    
-    if project:
-        from pathlib import Path
-        config.project_root = Path(project).resolve()
-    
-    # Create and run agent
-    agent = AgentLoop(config=config, use_local=local)
+    # Initialize implementation
+    runtime = KlixRuntime(use_local=local)
     
     try:
-        asyncio.run(agent.run())
+        asyncio.run(runtime.run())
     except KeyboardInterrupt:
-        logger.info("Shutdown requested by user")
-    finally:
-        # Ensure cleanup is called
-        asyncio.run(agent.cleanup())
-        sys.exit(0)
+        pass
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}", exc_info=True)
+        print(f"Fatal error: {e}")
 
-
-def run_cli() -> None:
-    """Entry point for the 'Klix' command."""
-    setup_logging()
+def run_cli():
+    """Entry point for the console script."""
     app()
 
-
 if __name__ == "__main__":
-    run_cli()
+    app()

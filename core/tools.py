@@ -1013,6 +1013,333 @@ def http_headers(url: str, follow_redirects: bool = True) -> str:
 
 
 # ============================================================================
+# Git Integration Tools
+# ============================================================================
+
+@tool(
+    "git_status",
+    "Show the working tree status (modified, staged, untracked files).",
+    [
+        ToolParameter(
+            name="short",
+            type="boolean",
+            description="Use short format output. Defaults to False.",
+            required=False,
+            default=False,
+        ),
+    ],
+)
+def git_status(short: bool = False) -> str:
+    """Get git repository status."""
+    try:
+        config = get_config()
+        cwd = config.project_root
+        
+        cmd = ["git", "status"]
+        if short:
+            cmd.append("--short")
+        
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        
+        if result.returncode != 0:
+            return f"Error: {result.stderr.strip() or 'Not a git repository'}"
+        
+        return result.stdout.strip() or "Working tree clean"
+    
+    except subprocess.TimeoutExpired:
+        return "Error: git status timed out."
+    except FileNotFoundError:
+        return "Error: git is not installed or not in PATH."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@tool(
+    "git_diff",
+    "Show changes between commits, commit and working tree, etc.",
+    [
+        ToolParameter(
+            name="path",
+            type="string",
+            description="Specific file or directory to diff. Optional.",
+            required=False,
+            default="",
+        ),
+        ToolParameter(
+            name="staged",
+            type="boolean",
+            description="Show staged changes. Defaults to False (unstaged).",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="commit",
+            type="string",
+            description="Compare with a specific commit (e.g., HEAD~1, abc123).",
+            required=False,
+            default="",
+        ),
+    ],
+)
+def git_diff(path: str = "", staged: bool = False, commit: str = "") -> str:
+    """Show git diff."""
+    try:
+        config = get_config()
+        cwd = config.project_root
+        
+        cmd = ["git", "diff"]
+        if staged:
+            cmd.append("--staged")
+        if commit:
+            cmd.append(commit)
+        if path:
+            cmd.extend(["--", path])
+        
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        
+        if result.returncode != 0:
+            return f"Error: {result.stderr.strip()}"
+        
+        output = result.stdout.strip()
+        if not output:
+            return "No differences found."
+        
+        # Truncate if too long
+        if len(output) > 8000:
+            output = output[:8000] + "\n\n... (truncated, diff too large)"
+        
+        return output
+    
+    except subprocess.TimeoutExpired:
+        return "Error: git diff timed out."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@tool(
+    "git_log",
+    "Show commit logs.",
+    [
+        ToolParameter(
+            name="count",
+            type="integer",
+            description="Number of commits to show. Defaults to 10.",
+            required=False,
+            default=10,
+        ),
+        ToolParameter(
+            name="oneline",
+            type="boolean",
+            description="Use one-line format. Defaults to True.",
+            required=False,
+            default=True,
+        ),
+        ToolParameter(
+            name="path",
+            type="string",
+            description="Show commits that affect this path. Optional.",
+            required=False,
+            default="",
+        ),
+    ],
+)
+def git_log(count: int = 10, oneline: bool = True, path: str = "") -> str:
+    """Show git commit log."""
+    try:
+        config = get_config()
+        cwd = config.project_root
+        
+        cmd = ["git", "log", f"-{count}"]
+        if oneline:
+            cmd.append("--oneline")
+        else:
+            cmd.append("--format=%h %s (%an, %ar)")
+        if path:
+            cmd.extend(["--", path])
+        
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        
+        if result.returncode != 0:
+            return f"Error: {result.stderr.strip()}"
+        
+        return result.stdout.strip() or "No commits found."
+    
+    except subprocess.TimeoutExpired:
+        return "Error: git log timed out."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@tool(
+    "git_commit",
+    "Record changes to the repository. Stages all changes if stage_all is True.",
+    [
+        ToolParameter(
+            name="message",
+            type="string",
+            description="Commit message (required).",
+            required=True,
+        ),
+        ToolParameter(
+            name="stage_all",
+            type="boolean",
+            description="Stage all modified files before committing. Defaults to False.",
+            required=False,
+            default=False,
+        ),
+    ],
+)
+def git_commit(message: str, stage_all: bool = False) -> str:
+    """Create a git commit."""
+    try:
+        config = get_config()
+        cwd = config.project_root
+        
+        # Stage all if requested
+        if stage_all:
+            stage_result = subprocess.run(
+                ["git", "add", "-A"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if stage_result.returncode != 0:
+                return f"Error staging files: {stage_result.stderr.strip()}"
+        
+        # Commit
+        result = subprocess.run(
+            ["git", "commit", "-m", message],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            if "nothing to commit" in stderr or "nothing to commit" in result.stdout:
+                return "Nothing to commit. Working tree is clean."
+            return f"Error: {stderr}"
+        
+        return result.stdout.strip()
+    
+    except subprocess.TimeoutExpired:
+        return "Error: git commit timed out."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@tool(
+    "git_branch",
+    "List, create, or switch branches.",
+    [
+        ToolParameter(
+            name="action",
+            type="string",
+            description="Action: 'list', 'create', 'switch', 'delete'. Defaults to 'list'.",
+            required=False,
+            default="list",
+        ),
+        ToolParameter(
+            name="name",
+            type="string",
+            description="Branch name (required for create/switch/delete).",
+            required=False,
+            default="",
+        ),
+    ],
+)
+def git_branch(action: str = "list", name: str = "") -> str:
+    """Manage git branches."""
+    try:
+        config = get_config()
+        cwd = config.project_root
+        
+        action = action.lower()
+        
+        if action == "list":
+            result = subprocess.run(
+                ["git", "branch", "-a"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return f"Error: {result.stderr.strip()}"
+            return result.stdout.strip() or "No branches found."
+        
+        elif action == "create":
+            if not name:
+                return "Error: Branch name is required for 'create' action."
+            result = subprocess.run(
+                ["git", "branch", name],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return f"Error: {result.stderr.strip()}"
+            return f"Created branch: {name}"
+        
+        elif action == "switch":
+            if not name:
+                return "Error: Branch name is required for 'switch' action."
+            result = subprocess.run(
+                ["git", "checkout", name],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return f"Error: {result.stderr.strip()}"
+            return f"Switched to branch: {name}"
+        
+        elif action == "delete":
+            if not name:
+                return "Error: Branch name is required for 'delete' action."
+            result = subprocess.run(
+                ["git", "branch", "-d", name],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return f"Error: {result.stderr.strip()}"
+            return f"Deleted branch: {name}"
+        
+        else:
+            return f"Error: Unknown action '{action}'. Use 'list', 'create', 'switch', or 'delete'."
+    
+    except subprocess.TimeoutExpired:
+        return "Error: git branch command timed out."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+# ============================================================================
 # Utility Functions
 # ============================================================================
 

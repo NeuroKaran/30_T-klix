@@ -111,6 +111,7 @@ class MemoryService:
     _client: Union[Mem0Local, Mem0Cloud, None] = field(default=None, repr=False)
     _qdrant_client: Any = field(default=None, repr=False)
     _is_local: bool = field(default=False, repr=False)
+    init_error: str | None = field(default=None, repr=False)
     
     def __post_init__(self) -> None:
         """Initialize the mem0 client (local or cloud)."""
@@ -135,6 +136,7 @@ class MemoryService:
             except Exception as e:
                 logger.error(f"Failed to initialize local mem0: {e}")
                 self._client = None
+                self.init_error = str(e)
         else:
             # Cloud mode: Use API key
             api_key = self.config.mem0_api_key
@@ -144,6 +146,7 @@ class MemoryService:
                 self._is_local = False
             else:
                 logger.warning("MEM0_API_KEY not set and MEM0_LOCAL is false. Memory disabled.")
+                self.init_error = "MEM0_API_KEY not set and MEM0_LOCAL is false."
     
     @property
     def is_enabled(self) -> bool:

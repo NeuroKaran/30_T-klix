@@ -24,11 +24,12 @@ dependencies = [
 ]
 
 [project.scripts]
-Klix = "main:run_cli"
+klix = "main:run_cli"
 
 [tool.setuptools]
-packages = ["utils"]
-py-modules = ["main", "config", "exceptions", "llm_client", "logging_config", "tools", "tui", "mem_0", "reasoning_logger"]
+packages = ["utils", "core", "ui", "Nemo"]
+py-modules = ["main", "config", "exceptions", "llm_client", "logging_config", "mem_0", "reasoning_logger"]
+include-package-data = true
 
 [tool.setuptools.package-data]
 "*" = ["*.py", "*.txt", "*.md", ".env.example"]
